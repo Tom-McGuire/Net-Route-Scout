@@ -1,0 +1,37 @@
+name: net_route_scout
+description: "Net Route Scout - Visual Multi-Hop Network Topology & Traceroute Mapper"
+publish_to: 'none'
+
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.13.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  network_suite_shared:
+    path: ../network-suite-shared
+
+  provider: ^6.1.5+1
+  sqlite3: ^3.7.1
+  sqlite3_flutter_libs: ^0.6.0+eol
+  path_provider: ^2.1.6
+  path: ^1.9.1
+  file_picker: ^13.1.0
+  intl: ^0.20.3
+  graphview: ^1.5.1
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/app_icon.png
+    - assets/app_icon.jpg
