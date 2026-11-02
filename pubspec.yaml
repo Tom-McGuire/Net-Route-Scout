@@ -12,7 +12,9 @@ dependencies:
     sdk: flutter
 
   network_suite_shared:
-    path: ../network-suite-shared
+    git:
+      url: https://github.com/Tom-McGuire/network-suite-shared.git
+      ref: main
 
   provider: ^6.1.5+1
   sqlite3: ^3.7.1
