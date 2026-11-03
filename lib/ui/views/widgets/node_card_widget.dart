@@ -40,7 +40,8 @@ class NodeCardWidget extends StatelessWidget {
           borderRadius: BorderRadius.circular(8),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 180),
-            width: 215,
+            width: 220,
+            height: 96,
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             decoration: BoxDecoration(
               color: node.isUnresponsive
@@ -69,18 +70,18 @@ class NodeCardWidget extends StatelessWidget {
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                // Top Header Row: Icon + Type Badge + Depth / RTT
+                // 1. Top Header Row: Icon + Type Badge + Depth / RTT
                 Row(
                   children: [
                     Container(
-                      padding: const EdgeInsets.all(4),
+                      padding: const EdgeInsets.all(3.5),
                       decoration: BoxDecoration(
                         color: themeColor.withValues(alpha: 0.18),
-                        borderRadius: BorderRadius.circular(5),
+                        borderRadius: BorderRadius.circular(4),
                       ),
-                      child: Icon(iconData, size: 13, color: themeColor),
+                      child: Icon(iconData, size: 12, color: themeColor),
                     ),
                     const SizedBox(width: 6),
                     Container(
@@ -93,10 +94,10 @@ class NodeCardWidget extends StatelessWidget {
                       child: Text(
                         badgeLabel,
                         style: TextStyle(
-                          fontSize: 9,
+                          fontSize: 8.5,
                           fontWeight: FontWeight.bold,
                           color: themeColor,
-                          letterSpacing: 0.5,
+                          letterSpacing: 0.4,
                         ),
                       ),
                     ),
@@ -120,145 +121,178 @@ class NodeCardWidget extends StatelessWidget {
                           color: Colors.white38,
                         ),
                       ),
+                    ] else ...[
+                      Text(
+                        'Hop ${node.hopDepth}',
+                        style: const TextStyle(
+                          fontSize: 9.5,
+                          fontFamily: 'monospace',
+                          color: Colors.white38,
+                        ),
+                      ),
                     ],
                   ],
                 ),
-                const SizedBox(height: 6),
 
-                // Device Friendly Name (from Shared DB) or Hostname
-                if (node.hasSharedName) ...[
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          node.sharedDeviceName!,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF10B981).withValues(alpha: 0.2),
-                          borderRadius: BorderRadius.circular(3),
-                        ),
-                        child: const Text(
-                          'SHARED',
-                          style: TextStyle(
-                            fontSize: 8,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF10B981),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ] else if (node.hostname != null && node.hostname!.isNotEmpty && node.hostname != node.ip) ...[
-                  Text(
-                    node.hostname!,
-                    style: const TextStyle(
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-
-                // IP Address (Monospace)
-                Row(
+                // 2. Middle Row: Name & IP
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Expanded(
-                      child: Text(
+                    if (node.hasSharedName) ...[
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              node.sharedDeviceName!,
+                              style: const TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 3.5, vertical: 0.5),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF10B981).withValues(alpha: 0.2),
+                              borderRadius: BorderRadius.circular(2.5),
+                            ),
+                            child: const Text(
+                              'SHARED',
+                              style: TextStyle(
+                                fontSize: 7.5,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF10B981),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 1),
+                      Text(
                         node.ip,
-                        style: TextStyle(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w600,
+                        style: const TextStyle(
+                          fontSize: 10.5,
                           fontFamily: 'monospace',
-                          color: node.isUnresponsive ? Colors.white38 : (node.hasSharedName ? Colors.white70 : Colors.white),
+                          color: Colors.white70,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Hop ${node.hopDepth}',
-                      style: const TextStyle(
-                        fontSize: 9.5,
-                        color: Colors.white38,
-                        fontFamily: 'monospace',
+                    ] else if (node.hostname != null && node.hostname!.isNotEmpty && node.hostname != node.ip) ...[
+                      Text(
+                        node.hostname!,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                    ),
+                      const SizedBox(height: 1),
+                      Text(
+                        node.ip,
+                        style: const TextStyle(
+                          fontSize: 10.5,
+                          fontFamily: 'monospace',
+                          color: Colors.white70,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ] else ...[
+                      Text(
+                        node.ip,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'monospace',
+                          color: node.isUnresponsive ? Colors.white38 : Colors.white,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
                   ],
                 ),
 
-                // MAC Address & Vendor (if resolved via ARP)
+                // 3. Bottom Row: MAC & Vendor / Subtitle Details
                 if (node.macAddress != null) ...[
-                  const SizedBox(height: 3),
                   Row(
                     children: [
                       const Icon(Icons.fingerprint, size: 10, color: Colors.white38),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: Text(
-                          node.macAddress!,
-                          style: const TextStyle(
-                            fontSize: 9.5,
-                            fontFamily: 'monospace',
-                            color: Colors.white54,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                      const SizedBox(width: 3),
+                      Text(
+                        node.macAddress!,
+                        style: const TextStyle(
+                          fontSize: 9,
+                          fontFamily: 'monospace',
+                          color: Colors.white54,
                         ),
+                        maxLines: 1,
                       ),
-                    ],
-                  ),
-                ],
-
-                if (node.vendor != null && node.vendor!.isNotEmpty) ...[
-                  Text(
-                    node.vendor!,
-                    style: const TextStyle(
-                      fontSize: 9,
-                      color: Colors.white38,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-
-                // Traversed Target Count Badge (for intermediate routers)
-                if (!node.isLocalHost && node.associatedTargets.length > 1) ...[
-                  const SizedBox(height: 4),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.06),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.alt_route, size: 10, color: AppTheme.router),
-                        const SizedBox(width: 4),
-                        Text(
-                          'Routes ${node.associatedTargets.length} targets',
-                          style: const TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w500,
-                            color: Colors.white70,
+                      if (node.vendor != null && node.vendor!.isNotEmpty) ...[
+                        const SizedBox(width: 5),
+                        Expanded(
+                          child: Text(
+                            node.vendor!,
+                            style: const TextStyle(
+                              fontSize: 8.5,
+                              color: Colors.white38,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
                       ],
+                    ],
+                  ),
+                ] else if (node.isUnresponsive) ...[
+                  const Text(
+                    'No ICMP / Hop response',
+                    style: TextStyle(
+                      fontSize: 8.5,
+                      color: Colors.white30,
                     ),
+                    maxLines: 1,
+                  ),
+                ] else if (node.isLocalHost) ...[
+                  const Text(
+                    'Local Discovery Gateway',
+                    style: TextStyle(
+                      fontSize: 8.5,
+                      color: Colors.white38,
+                    ),
+                    maxLines: 1,
+                  ),
+                ] else if (node.associatedTargets.length > 1) ...[
+                  Row(
+                    children: [
+                      const Icon(Icons.alt_route, size: 9, color: AppTheme.router),
+                      const SizedBox(width: 3),
+                      Text(
+                        'Routes ${node.associatedTargets.length} targets',
+                        style: const TextStyle(
+                          fontSize: 8.5,
+                          color: Colors.white54,
+                        ),
+                        maxLines: 1,
+                      ),
+                    ],
+                  ),
+                ] else ...[
+                  Text(
+                    'Hop ${node.hopDepth} Gateway',
+                    style: const TextStyle(
+                      fontSize: 8.5,
+                      color: Colors.white30,
+                    ),
+                    maxLines: 1,
                   ),
                 ],
               ],

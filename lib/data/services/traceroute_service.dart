@@ -49,6 +49,7 @@ class TracerouteService {
     String targetIp, {
     int maxHops = 15,
     int timeoutMs = 1000,
+    String? sourceIp,
     void Function(TraceHop hop)? onHopDiscovered,
   }) async {
     if (_isCancelled) {
@@ -66,10 +67,18 @@ class TracerouteService {
 
     if (Platform.isWindows) {
       executable = 'tracert';
-      args = ['-d', '-h', '$maxHops', '-w', '$timeoutMs', targetIp];
+      args = ['-d', '-h', '$maxHops', '-w', '$timeoutMs'];
+      if (sourceIp != null && sourceIp.isNotEmpty && sourceIp != '0.0.0.0') {
+        args.addAll(['-S', sourceIp]);
+      }
+      args.add(targetIp);
     } else if (Platform.isMacOS) {
       executable = 'traceroute';
-      args = ['-n', '-m', '$maxHops', '-w', '$timeoutMs', '-q', '1', targetIp];
+      args = ['-n', '-m', '$maxHops', '-w', '$timeoutMs', '-q', '1'];
+      if (sourceIp != null && sourceIp.isNotEmpty && sourceIp != '0.0.0.0') {
+        args.addAll(['-s', sourceIp]);
+      }
+      args.add(targetIp);
     } else {
       // Linux
       final bin = await _resolveLinuxTracerouteBin();
@@ -77,7 +86,11 @@ class TracerouteService {
       if (bin == 'tracepath') {
         args = ['-n', '-m', '$maxHops', targetIp];
       } else {
-        args = ['-n', '-m', '$maxHops', '-w', '1', '-q', '1', targetIp];
+        args = ['-n', '-m', '$maxHops', '-w', '1', '-q', '1'];
+        if (sourceIp != null && sourceIp.isNotEmpty && sourceIp != '0.0.0.0') {
+          args.addAll(['-s', sourceIp]);
+        }
+        args.add(targetIp);
       }
     }
 
@@ -249,6 +262,7 @@ class TracerouteService {
     int concurrency = 4,
     int maxHops = 15,
     int timeoutMs = 1000,
+    String? sourceIp,
     void Function(int completed, int total, String currentIp, TraceResult result)? onTargetCompleted,
     void Function(String targetIp, TraceHop hop)? onHopDiscovered,
   }) async {
@@ -267,6 +281,7 @@ class TracerouteService {
           targetIp,
           maxHops: maxHops,
           timeoutMs: timeoutMs,
+          sourceIp: sourceIp,
           onHopDiscovered: (hop) => onHopDiscovered?.call(targetIp, hop),
         );
         completed++;

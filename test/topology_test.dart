@@ -132,5 +132,26 @@ void main() {
       final anon = repo.nodes['Anon-Hop-Depth-2']!;
       expect(anon.isUnresponsive, isTrue);
     });
+
+    test('Local Host retains physical MAC and vendor across resets', () {
+      repo.setLocalHost(
+        '192.168.1.5',
+        gatewayIp: '192.168.1.1',
+        macAddress: '00:1A:2B:3C:4D:5E',
+        vendor: 'Intel Corporate',
+        sharedName: 'Engineering Laptop',
+      );
+
+      var host = repo.nodes['192.168.1.5']!;
+      expect(host.macAddress, '00:1A:2B:3C:4D:5E');
+      expect(host.vendor, 'Intel Corporate');
+      expect(host.sharedDeviceName, 'Engineering Laptop');
+
+      repo.clear();
+      host = repo.nodes['192.168.1.5']!;
+      expect(host.macAddress, '00:1A:2B:3C:4D:5E');
+      expect(host.vendor, 'Intel Corporate');
+      expect(host.sharedDeviceName, 'Engineering Laptop');
+    });
   });
 }

@@ -7,8 +7,10 @@ import '../../data/services/arp_service.dart';
 import '../../data/services/demo_data_generator.dart';
 import '../../data/services/export_service.dart';
 import '../../data/services/icmp_service.dart';
+import '../../data/services/network_adapter_service.dart';
 import '../../data/services/shared_device_service.dart';
 import '../../data/services/traceroute_service.dart';
+import '../../domain/models/network_adapter_info.dart';
 import '../../domain/models/network_edge.dart';
 import '../../domain/models/network_node.dart';
 import '../../domain/models/scan_progress.dart';
@@ -30,6 +32,8 @@ class TopologyViewModel extends ChangeNotifier {
   StreamSubscription<void>? _dbSubscription;
 
   // View State
+  List<NetworkAdapterInfo> _adapters = [];
+  NetworkAdapterInfo? _selectedAdapter;
   String _targetInput = '';
   int _concurrency = AppConstants.defaultConcurrency;
   int _maxHops = AppConstants.defaultMaxHops;
@@ -41,6 +45,8 @@ class TopologyViewModel extends ChangeNotifier {
   Map<String, ArpDeviceEntry> _cachedArp = {};
 
   // Getters
+  List<NetworkAdapterInfo> get adapters => List.unmodifiable(_adapters);
+  NetworkAdapterInfo? get selectedAdapter => _selectedAdapter;
   Map<String, NetworkNode> get nodes => _repository.nodes;
   Map<String, NetworkEdge> get edges => _repository.edges;
   List<TraceResult> get traces => _repository.traces;
@@ -94,28 +100,91 @@ class TopologyViewModel extends ChangeNotifier {
       });
     } catch (_) {}
 
-    // Detect local network environment
-    final localIp = await _arpService.detectLocalHostIp();
-    final gwIp = await _arpService.detectDefaultGateway();
-    _repository.setLocalHost(localIp, gatewayIp: gwIp);
+    // Read initial ARP cache
+    _cachedArp = await _arpService.readSystemArpCache();
 
-    // Initial default target suggestion based on local subnet
-    if (_targetInput.isEmpty) {
-      final parts = localIp.split('.');
-      if (parts.length == 4 && localIp != '127.0.0.1') {
-        _targetInput = '${parts[0]}.${parts[1]}.${parts[2]}.0/24';
-      } else {
-        _targetInput = '192.168.1.0/24';
+    // Discover network adapters and auto-select primary adapter
+    await refreshAdapters();
+
+    // If no adapters were discovered, fallback to default detection
+    if (_adapters.isEmpty) {
+      final localIp = await _arpService.detectLocalHostIp();
+      final gwIp = await _arpService.detectDefaultGateway();
+      _repository.setLocalHost(localIp, gatewayIp: gwIp);
+
+      if (_targetInput.isEmpty) {
+        final parts = localIp.split('.');
+        if (parts.length == 4 && localIp != '127.0.0.1') {
+          _targetInput = '${parts[0]}.${parts[1]}.${parts[2]}.0/24';
+        } else {
+          _targetInput = '192.168.1.0/24';
+        }
       }
     }
 
-    // Initial ARP cache read
-    _cachedArp = await _arpService.readSystemArpCache();
     _repository.enrichNodes(
       arpCache: _cachedArp,
       sharedDeviceService: _sharedDeviceService,
     );
 
+    notifyListeners();
+  }
+
+  /// Refreshes network adapter list and retains/picks current selection.
+  Future<void> refreshAdapters() async {
+    try {
+      _adapters = await NetworkAdapterService.getAvailableAdapters();
+      if (_adapters.isNotEmpty) {
+        // Select best adapter: non-loopback with valid IP and gateway, or first non-loopback
+        NetworkAdapterInfo? best;
+        if (_selectedAdapter != null) {
+          best = _adapters.firstWhere(
+            (a) => a.id == _selectedAdapter!.id || a.name == _selectedAdapter!.name,
+            orElse: () => _adapters.first,
+          );
+        } else {
+          best = _adapters.firstWhere(
+            (a) => !a.isLoopback && a.ipAddress != '127.0.0.1' && a.ipAddress != '0.0.0.0' && a.gatewayIp != null,
+            orElse: () => _adapters.firstWhere(
+              (a) => !a.isLoopback && a.ipAddress != '127.0.0.1' && a.ipAddress != '0.0.0.0',
+              orElse: () => _adapters.first,
+            ),
+          );
+        }
+        selectAdapter(best, autoPopulateTarget: _targetInput.isEmpty);
+      }
+    } catch (_) {}
+    notifyListeners();
+  }
+
+  /// Selects the network adapter to carry out discovery and sets local host attributes.
+  void selectAdapter(NetworkAdapterInfo adapter, {bool autoPopulateTarget = true}) {
+    _selectedAdapter = adapter;
+
+    String? localSharedName;
+    if (adapter.macAddress != null && adapter.macAddress!.isNotEmpty) {
+      final resolved = _sharedDeviceService.resolveDeviceInfo(adapter.macAddress!);
+      if (resolved != null) {
+        localSharedName = resolved.friendlyName;
+      }
+    }
+
+    _repository.setLocalHost(
+      adapter.ipAddress,
+      gatewayIp: adapter.gatewayIp,
+      macAddress: adapter.macAddress,
+      vendor: adapter.vendor,
+      sharedName: localSharedName,
+    );
+
+    if (autoPopulateTarget && adapter.subnetCidr.isNotEmpty) {
+      _targetInput = adapter.subnetCidr;
+    }
+
+    _repository.enrichNodes(
+      arpCache: _cachedArp,
+      sharedDeviceService: _sharedDeviceService,
+    );
     notifyListeners();
   }
 
@@ -208,6 +277,7 @@ class TopologyViewModel extends ChangeNotifier {
         targetIps,
         concurrency: 16,
         timeoutMs: 350,
+        sourceIp: _selectedAdapter?.ipAddress,
         onProgress: (completed, total, currentIp, reached) {
           _scanProgress = _scanProgress.copyWith(
             completedTargets: completed,
@@ -248,6 +318,7 @@ class TopologyViewModel extends ChangeNotifier {
       concurrency: _concurrency,
       maxHops: _maxHops,
       timeoutMs: 1000,
+      sourceIp: _selectedAdapter?.ipAddress,
       onHopDiscovered: (targetIp, hop) {
         // Stream live hop into UI
         _repository.ingestTraceResult(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:net_route_scout/core/app_theme.dart';
+import 'package:net_route_scout/domain/models/network_adapter_info.dart';
 import 'package:net_route_scout/ui/view_models/topology_view_model.dart';
 
 class FilterToolbar extends StatefulWidget {
@@ -48,6 +49,76 @@ class _FilterToolbarState extends State<FilterToolbar> {
       ),
       child: Row(
         children: [
+          // Network Adapter Selector
+          Container(
+            height: 34,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            decoration: BoxDecoration(
+              color: AppTheme.inputFill,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: const Color(0xFF3E3E42)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.settings_ethernet, size: 14, color: AppTheme.hostLocal),
+                const SizedBox(width: 6),
+                DropdownButtonHideUnderline(
+                  child: DropdownButton<NetworkAdapterInfo>(
+                    value: vm.selectedAdapter,
+                    dropdownColor: AppTheme.surfaceContainerHigh,
+                    style: const TextStyle(fontSize: 11, color: Colors.white),
+                    hint: const Text('Select Adapter', style: TextStyle(fontSize: 11, color: Colors.white38)),
+                    onChanged: vm.isScanning
+                        ? null
+                        : (adapter) {
+                            if (adapter != null) {
+                              vm.selectAdapter(adapter);
+                              _targetController.text = adapter.subnetCidr;
+                            }
+                          },
+                    items: vm.adapters.map((adapter) {
+                      return DropdownMenuItem<NetworkAdapterInfo>(
+                        value: adapter,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              adapter.displayName,
+                              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.white),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              adapter.ipAddress,
+                              style: const TextStyle(fontSize: 10.5, fontFamily: 'monospace', color: Colors.white70),
+                            ),
+                            if (adapter.macAddress != null && adapter.macAddress!.isNotEmpty) ...[
+                              const SizedBox(width: 6),
+                              Text(
+                                '[${adapter.macAddress}]',
+                                style: const TextStyle(fontSize: 9.5, fontFamily: 'monospace', color: Colors.white38),
+                              ),
+                            ],
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                IconButton(
+                  icon: const Icon(Icons.refresh, size: 13, color: Colors.white54),
+                  tooltip: 'Refresh network interfaces',
+                  splashRadius: 14,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 20, minHeight: 20),
+                  onPressed: vm.isScanning ? null : vm.refreshAdapters,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+
           // Target Input Field
           Expanded(
             flex: 4,

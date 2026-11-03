@@ -17,10 +17,10 @@ class TopologyCanvas extends StatefulWidget {
 class _TopologyCanvasState extends State<TopologyCanvas> {
   final TransformationController _transformController = TransformationController();
 
-  static const double cardWidth = 215.0;
-  static const double cardHeight = 110.0;
-  static const double layerSpacingX = 300.0;
-  static const double nodeSpacingY = 135.0;
+  static const double cardWidth = 220.0;
+  static const double cardHeight = 96.0;
+  static const double layerSpacingX = 310.0;
+  static const double nodeSpacingY = 130.0;
   static const double paddingX = 60.0;
   static const double paddingY = 60.0;
 
@@ -347,19 +347,21 @@ class _TopologyEdgesPainter extends CustomPainter {
       final endPos = nodePositions[edge.targetIp];
       if (startPos == null || endPos == null) continue;
 
+      // Exact center of right edge of source card
       final start = Offset(startPos.dx + cardWidth, startPos.dy + (cardHeight / 2));
+      // Exact center of left edge of target card
       final end = Offset(endPos.dx, endPos.dy + (cardHeight / 2));
 
       final isActive = activeEdgeIds.contains(edge.edgeId);
       final isDimmed = hasSelection && !isActive;
 
-      final path = Path();
-      path.moveTo(start.dx, start.dy);
-
       final dx = end.dx - start.dx;
+      // Tangents are strictly horizontal at start and end points for smooth edge-to-edge alignment
       final controlPoint1 = Offset(start.dx + dx * 0.45, start.dy);
       final controlPoint2 = Offset(end.dx - dx * 0.45, end.dy);
 
+      final path = Path();
+      path.moveTo(start.dx, start.dy);
       path.cubicTo(
         controlPoint1.dx,
         controlPoint1.dy,
@@ -388,38 +390,43 @@ class _TopologyEdgesPainter extends CustomPainter {
         canvas.drawPath(path, glowPaint);
         canvas.drawPath(path, paint);
 
-        _drawArrowhead(canvas, controlPoint2, end, AppTheme.activeHighlight, 8.0);
+        // Source anchor dot
+        final dotPaint = Paint()
+          ..color = AppTheme.activeHighlight
+          ..style = PaintingStyle.fill;
+        canvas.drawCircle(start, 2.5, dotPaint);
+
+        _drawHorizontalArrowhead(canvas, end, AppTheme.activeHighlight, 8.0);
       } else {
         paint
           ..color = isDimmed
               ? const Color(0xFF2E3440).withValues(alpha: 0.3)
-              : const Color(0xFF38BDF8).withValues(alpha: 0.35)
-          ..strokeWidth = isDimmed ? 1.0 : 1.4;
+              : const Color(0xFF38BDF8).withValues(alpha: 0.4)
+          ..strokeWidth = isDimmed ? 1.0 : 1.5;
 
         canvas.drawPath(path, paint);
         if (!isDimmed) {
-          _drawArrowhead(canvas, controlPoint2, end, const Color(0xFF38BDF8).withValues(alpha: 0.5), 6.0);
+          final dotPaint = Paint()
+            ..color = const Color(0xFF38BDF8).withValues(alpha: 0.5)
+            ..style = PaintingStyle.fill;
+          canvas.drawCircle(start, 2.0, dotPaint);
+
+          _drawHorizontalArrowhead(canvas, end, const Color(0xFF38BDF8).withValues(alpha: 0.6), 6.5);
         }
       }
     }
   }
 
-  void _drawArrowhead(Canvas canvas, Offset from, Offset to, Color color, double arrowSize) {
-    final angle = math.atan2(to.dy - from.dy, to.dx - from.dx);
+  void _drawHorizontalArrowhead(Canvas canvas, Offset tip, Color color, double arrowSize) {
     final arrowPaint = Paint()
       ..color = color
       ..style = PaintingStyle.fill;
 
     final path = Path();
-    path.moveTo(to.dx, to.dy);
-    path.lineTo(
-      to.dx - arrowSize * math.cos(angle - math.pi / 6),
-      to.dy - arrowSize * math.sin(angle - math.pi / 6),
-    );
-    path.lineTo(
-      to.dx - arrowSize * math.cos(angle + math.pi / 6),
-      to.dy - arrowSize * math.sin(angle + math.pi / 6),
-    );
+    path.moveTo(tip.dx, tip.dy);
+    path.lineTo(tip.dx - arrowSize, tip.dy - (arrowSize * 0.5));
+    path.lineTo(tip.dx - (arrowSize * 0.7), tip.dy);
+    path.lineTo(tip.dx - arrowSize, tip.dy + (arrowSize * 0.5));
     path.close();
 
     canvas.drawPath(path, arrowPaint);

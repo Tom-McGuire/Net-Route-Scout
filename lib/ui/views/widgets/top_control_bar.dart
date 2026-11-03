@@ -83,7 +83,7 @@ class TopControlBar extends StatelessWidget {
                 const Icon(Icons.laptop, size: 12, color: AppTheme.hostLocal),
                 const SizedBox(width: 4),
                 Text(
-                  'Host: ${vm.localHostIp}',
+                  'Host: ${vm.localHostIp}${vm.selectedAdapter?.macAddress != null && vm.selectedAdapter!.macAddress!.isNotEmpty ? '  [${vm.selectedAdapter!.macAddress}]' : ''}',
                   style: const TextStyle(
                     fontSize: 10,
                     fontFamily: 'monospace',

@@ -12,6 +12,9 @@ class TopologyRepository {
   final List<TraceResult> _traces = [];
 
   String _localHostIp = '127.0.0.1';
+  String? _localHostMac;
+  String? _localHostVendor;
+  String? _localHostSharedName;
   String? _gatewayIp;
   String? _selectedNodeId;
 
@@ -19,19 +22,32 @@ class TopologyRepository {
   Map<String, NetworkEdge> get edges => UnmodifiableMapView(_edges);
   List<TraceResult> get traces => List.unmodifiable(_traces);
   String get localHostIp => _localHostIp;
+  String? get localHostMac => _localHostMac;
   String? get gatewayIp => _gatewayIp;
   String? get selectedNodeId => _selectedNodeId;
   NetworkNode? get selectedNode => _selectedNodeId != null ? _nodes[_selectedNodeId] : null;
 
-  void setLocalHost(String ip, {String? gatewayIp}) {
+  void setLocalHost(
+    String ip, {
+    String? gatewayIp,
+    String? macAddress,
+    String? vendor,
+    String? sharedName,
+  }) {
     _localHostIp = ip;
     _gatewayIp = gatewayIp;
+    if (macAddress != null && macAddress.isNotEmpty) _localHostMac = macAddress;
+    if (vendor != null && vendor.isNotEmpty) _localHostVendor = vendor;
+    if (sharedName != null && sharedName.isNotEmpty) _localHostSharedName = sharedName;
 
     // Ensure root host node exists
     _nodes[ip] = NetworkNode(
       id: ip,
       ip: ip,
       hostname: 'Local PC (Host)',
+      sharedDeviceName: _localHostSharedName,
+      macAddress: _localHostMac,
+      vendor: _localHostVendor,
       hopDepth: 0,
       isLocalHost: true,
       associatedTargets: {},
@@ -49,6 +65,9 @@ class TopologyRepository {
       id: _localHostIp,
       ip: _localHostIp,
       hostname: 'Local PC (Host)',
+      sharedDeviceName: _localHostSharedName,
+      macAddress: _localHostMac,
+      vendor: _localHostVendor,
       hopDepth: 0,
       isLocalHost: true,
       associatedTargets: {},

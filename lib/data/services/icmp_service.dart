@@ -126,7 +126,7 @@ class IcmpService {
   }
 
   /// Sends a single ICMP echo probe to [ip].
-  Future<IcmpPingResult> pingHost(String ip, {int timeoutMs = 400}) async {
+  Future<IcmpPingResult> pingHost(String ip, {int timeoutMs = 400, String? sourceIp}) async {
     if (_isCancelled || !isValidIpv4(ip)) {
       return IcmpPingResult(ip: ip, reachable: false);
     }
@@ -134,9 +134,26 @@ class IcmpService {
     Process? proc;
     try {
       final bin = _resolvePingBinary();
-      final args = Platform.isWindows
-          ? ['-n', '1', '-w', '$timeoutMs', ip]
-          : ['-c', '1', '-W', Platform.isMacOS ? '$timeoutMs' : '1', ip];
+      final args = <String>[];
+      if (Platform.isWindows) {
+        args.addAll(['-n', '1', '-w', '$timeoutMs']);
+        if (sourceIp != null && sourceIp.isNotEmpty && sourceIp != '0.0.0.0') {
+          args.addAll(['-S', sourceIp]);
+        }
+        args.add(ip);
+      } else if (Platform.isMacOS) {
+        args.addAll(['-c', '1', '-W', '$timeoutMs']);
+        if (sourceIp != null && sourceIp.isNotEmpty && sourceIp != '0.0.0.0') {
+          args.addAll(['-S', sourceIp]);
+        }
+        args.add(ip);
+      } else {
+        args.addAll(['-c', '1', '-W', '1']);
+        if (sourceIp != null && sourceIp.isNotEmpty && sourceIp != '0.0.0.0') {
+          args.addAll(['-I', sourceIp]);
+        }
+        args.add(ip);
+      }
 
       final sw = Stopwatch()..start();
       proc = await Process.start(bin, args);
@@ -183,6 +200,7 @@ class IcmpService {
     List<String> targetIps, {
     int concurrency = 16,
     int timeoutMs = 350,
+    String? sourceIp,
     void Function(int completed, int total, String currentIp, bool reached)? onProgress,
   }) async {
     _isCancelled = false;
@@ -196,7 +214,7 @@ class IcmpService {
       final batch = targetIps.sublist(i, end);
 
       final results = await Future.wait(
-        batch.map((ip) => pingHost(ip, timeoutMs: timeoutMs)),
+        batch.map((ip) => pingHost(ip, timeoutMs: timeoutMs, sourceIp: sourceIp)),
       );
 
       for (final res in results) {
