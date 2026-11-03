@@ -67,18 +67,13 @@ class TracerouteService {
 
     if (Platform.isWindows) {
       executable = 'tracert';
-      args = ['-d', '-h', '$maxHops', '-w', '$timeoutMs'];
-      if (sourceIp != null && sourceIp.isNotEmpty && sourceIp != '0.0.0.0') {
-        args.addAll(['-S', sourceIp]);
-      }
-      args.add(targetIp);
+      // NOTE: Windows tracert.exe "-S" is IPv6-only. Passing -S with an IPv4 address
+      // causes tracert to immediately exit with error code and fail.
+      // The OS automatically routes through the selected adapter corresponding to the subnet.
+      args = ['-d', '-h', '$maxHops', '-w', '$timeoutMs', targetIp];
     } else if (Platform.isMacOS) {
       executable = 'traceroute';
-      args = ['-n', '-m', '$maxHops', '-w', '$timeoutMs', '-q', '1'];
-      if (sourceIp != null && sourceIp.isNotEmpty && sourceIp != '0.0.0.0') {
-        args.addAll(['-s', sourceIp]);
-      }
-      args.add(targetIp);
+      args = ['-n', '-m', '$maxHops', '-w', '$timeoutMs', '-q', '1', targetIp];
     } else {
       // Linux
       final bin = await _resolveLinuxTracerouteBin();
@@ -86,11 +81,7 @@ class TracerouteService {
       if (bin == 'tracepath') {
         args = ['-n', '-m', '$maxHops', targetIp];
       } else {
-        args = ['-n', '-m', '$maxHops', '-w', '1', '-q', '1'];
-        if (sourceIp != null && sourceIp.isNotEmpty && sourceIp != '0.0.0.0') {
-          args.addAll(['-s', sourceIp]);
-        }
-        args.add(targetIp);
+        args = ['-n', '-m', '$maxHops', '-w', '1', '-q', '1', targetIp];
       }
     }
 

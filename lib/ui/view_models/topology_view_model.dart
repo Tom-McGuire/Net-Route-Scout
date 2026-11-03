@@ -293,12 +293,25 @@ class TopologyViewModel extends ChangeNotifier {
     // Refresh ARP table to catch all newly probed MACs
     _cachedArp = await _arpService.readSystemArpCache();
 
+    // If ICMP ping had no responses (e.g. firewalls drop ICMP echo),
+    // check ARP table for devices that responded to ARP requests,
+    // or fall back to direct traceroute for small target sets.
+    if (liveHosts.isEmpty) {
+      final targetSet = targetIps.toSet();
+      final arpDiscovered = _cachedArp.keys.where((ip) => targetSet.contains(ip)).toList();
+      if (arpDiscovered.isNotEmpty) {
+        liveHosts = arpDiscovered;
+      } else if (targetIps.length <= 16) {
+        liveHosts = targetIps;
+      }
+    }
+
     if (liveHosts.isEmpty) {
       _scanProgress = const ScanProgress(
         phase: 'No responsive hosts found in target range',
         isScanning: false,
       );
-      _statusBannerText = 'No responsive hosts answered ICMP ping in the specified range.';
+      _statusBannerText = 'No responsive hosts answered ICMP ping or ARP in the specified range.';
       notifyListeners();
       return;
     }

@@ -136,20 +136,20 @@ class IcmpService {
       final bin = _resolvePingBinary();
       final args = <String>[];
       if (Platform.isWindows) {
-        args.addAll(['-n', '1', '-w', '$timeoutMs']);
-        if (sourceIp != null && sourceIp.isNotEmpty && sourceIp != '0.0.0.0') {
-          args.addAll(['-S', sourceIp]);
-        }
-        args.add(ip);
+        // NOTE: Windows ping.exe "-S" flag is strictly IPv6-only. Passing -S with an IPv4
+        // address causes ping to fail instantly with "Bad value for option -S."
+        // Windows kernel routing automatically binds outgoing packets to the matching adapter interface.
+        args.addAll(['-n', '1', '-w', '$timeoutMs', ip]);
       } else if (Platform.isMacOS) {
         args.addAll(['-c', '1', '-W', '$timeoutMs']);
-        if (sourceIp != null && sourceIp.isNotEmpty && sourceIp != '0.0.0.0') {
+        if (sourceIp != null && sourceIp.isNotEmpty && sourceIp != '0.0.0.0' && !sourceIp.startsWith('127.')) {
           args.addAll(['-S', sourceIp]);
         }
         args.add(ip);
       } else {
+        // Linux: ping -c 1 -W 1 [-I <source>] <ip>
         args.addAll(['-c', '1', '-W', '1']);
-        if (sourceIp != null && sourceIp.isNotEmpty && sourceIp != '0.0.0.0') {
+        if (sourceIp != null && sourceIp.isNotEmpty && sourceIp != '0.0.0.0' && !sourceIp.startsWith('127.')) {
           args.addAll(['-I', sourceIp]);
         }
         args.add(ip);
