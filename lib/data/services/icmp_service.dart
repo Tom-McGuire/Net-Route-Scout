@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import '../../domain/models/cancellation_token.dart';
 
 class IcmpPingResult {
   final String ip;
@@ -25,28 +26,23 @@ class IcmpService {
     _isCancelled = true;
     for (final p in _activeProcesses.toList()) {
       try {
-        p.kill();
+        p.kill(ProcessSignal.sigkill);
       } catch (_) {}
     }
     _activeProcesses.clear();
   }
 
-  /// Resolves the absolute path to ping on Windows to avoid DLL hijacking.
+  /// Resolves the appropriate ping binary for the platform.
   static String _resolvePingBinary() {
-    if (Platform.isWindows) {
-      final sysRoot = Platform.environment['SystemRoot'] ?? r'C:\Windows';
-      final candidate = '$sysRoot\\System32\\ping.exe';
-      if (File(candidate).existsSync()) return candidate;
-    }
     return 'ping';
   }
 
-  /// Validates IPv4 address string.
+  /// Checks if a string is a valid IPv4 address.
   static bool isValidIpv4(String ip) {
     final parts = ip.trim().split('.');
     if (parts.length != 4) return false;
-    for (final p in parts) {
-      final n = int.tryParse(p);
+    for (final part in parts) {
+      final n = int.tryParse(part);
       if (n == null || n < 0 || n > 255) return false;
     }
     return true;
@@ -63,18 +59,58 @@ class IcmpService {
     return '${(num >> 24) & 0xFF}.${(num >> 16) & 0xFF}.${(num >> 8) & 0xFF}.${num & 0xFF}';
   }
 
+  /// Calculates total hosts in a target specification without capping.
+  static int calculateTargetCount(String input) {
+    final trimmed = input.trim();
+    if (trimmed.isEmpty) return 0;
+
+    if (trimmed.contains('/')) {
+      final parts = trimmed.split('/');
+      if (parts.length != 2) return 0;
+      final baseIp = parts[0].trim();
+      final prefix = int.tryParse(parts[1].trim());
+      if (!isValidIpv4(baseIp) || prefix == null || prefix < 8 || prefix > 32) return 0;
+      if (prefix >= 31) return (1 << (32 - prefix));
+      return (1 << (32 - prefix)) - 2;
+    }
+
+    if (trimmed.contains('-')) {
+      final parts = trimmed.split('-');
+      if (parts.length != 2) return 0;
+      final startStr = parts[0].trim();
+      final endStr = parts[1].trim();
+      if (!isValidIpv4(startStr)) return 0;
+      final startNum = ipv4ToInt(startStr);
+      int endNum;
+      if (endStr.contains('.')) {
+        if (!isValidIpv4(endStr)) return 0;
+        endNum = ipv4ToInt(endStr);
+      } else {
+        final lastOctet = int.tryParse(endStr);
+        if (lastOctet == null || lastOctet < 0 || lastOctet > 255) return 0;
+        final octets = startStr.split('.');
+        endNum = ipv4ToInt('${octets[0]}.${octets[1]}.${octets[2]}.$lastOctet');
+      }
+      if (endNum < startNum) return 0;
+      return endNum - startNum + 1;
+    }
+
+    if (isValidIpv4(trimmed)) return 1;
+    return 0;
+  }
+
   /// Expands CIDR (192.168.1.0/24), range (10.0.0.1-50 or 10.0.0.1-10.0.0.50), or single IP.
   static List<String> expandTargetSpec(String input, {int maxHosts = 1024}) {
     final trimmed = input.trim();
     if (trimmed.isEmpty) return const [];
 
-    // 1. CIDR notation: 192.168.1.0/24
+    // 1. CIDR notation: 192.168.1.0/24 down to /8
     if (trimmed.contains('/')) {
       final parts = trimmed.split('/');
       if (parts.length != 2) return const [];
       final baseIp = parts[0].trim();
       final prefix = int.tryParse(parts[1].trim());
-      if (!isValidIpv4(baseIp) || prefix == null || prefix < 16 || prefix > 32) {
+      if (!isValidIpv4(baseIp) || prefix == null || prefix < 8 || prefix > 32) {
         return const [];
       }
       if (prefix == 32) return [baseIp];
@@ -126,12 +162,25 @@ class IcmpService {
   }
 
   /// Sends a single ICMP echo probe to [ip].
-  Future<IcmpPingResult> pingHost(String ip, {int timeoutMs = 400, String? sourceIp}) async {
-    if (_isCancelled || !isValidIpv4(ip)) {
+  Future<IcmpPingResult> pingHost(
+    String ip, {
+    int timeoutMs = 400,
+    String? sourceIp,
+    CancellationToken? cancelToken,
+  }) async {
+    if (_isCancelled || (cancelToken != null && cancelToken.isCancelled) || !isValidIpv4(ip)) {
       return IcmpPingResult(ip: ip, reachable: false);
     }
 
     Process? proc;
+    void onCancel() {
+      try {
+        proc?.kill(ProcessSignal.sigkill);
+      } catch (_) {}
+    }
+
+    cancelToken?.onCancel(onCancel);
+
     try {
       final bin = _resolvePingBinary();
       final args = <String>[];
@@ -159,18 +208,23 @@ class IcmpService {
       proc = await Process.start(bin, args);
       _activeProcesses.add(proc);
 
+      // Drain stderr to prevent blocking child process on full pipe
+      proc.stderr.drain<void>().catchError((_) {});
+
       final stdoutFuture = proc.stdout.transform(const SystemEncoding().decoder).join();
       final exitCode = await proc.exitCode.timeout(
         Duration(milliseconds: timeoutMs + 600),
         onTimeout: () {
-          proc?.kill();
+          try {
+            proc?.kill(ProcessSignal.sigkill);
+          } catch (_) {}
           return -1;
         },
       );
       sw.stop();
       _activeProcesses.remove(proc);
 
-      if (_isCancelled || exitCode != 0) {
+      if (_isCancelled || (cancelToken != null && cancelToken.isCancelled) || exitCode != 0) {
         return IcmpPingResult(ip: ip, reachable: false);
       }
 
@@ -191,33 +245,41 @@ class IcmpService {
     } catch (_) {
       if (proc != null) _activeProcesses.remove(proc);
       return IcmpPingResult(ip: ip, reachable: false);
+    } finally {
+      cancelToken?.removeListener(onCancel);
     }
   }
 
-  /// Sweeps [targetIps] with a concurrency worker pool.
+  /// Sweeps [targetIps] with a queue-based concurrency worker pool.
   /// Calls [onProgress] as results arrive.
   Future<List<String>> sweepActiveHosts(
     List<String> targetIps, {
     int concurrency = 16,
     int timeoutMs = 350,
     String? sourceIp,
+    CancellationToken? cancelToken,
     void Function(int completed, int total, String currentIp, bool reached)? onProgress,
   }) async {
-    _isCancelled = false;
     final activeHosts = <String>[];
     var completed = 0;
     final total = targetIps.length;
+    var currentIndex = 0;
 
-    for (var i = 0; i < targetIps.length; i += concurrency) {
-      if (_isCancelled) break;
-      final end = (i + concurrency < targetIps.length) ? i + concurrency : targetIps.length;
-      final batch = targetIps.sublist(i, end);
+    final activeCancel = cancelToken;
 
-      final results = await Future.wait(
-        batch.map((ip) => pingHost(ip, timeoutMs: timeoutMs, sourceIp: sourceIp)),
-      );
+    Future<void> worker() async {
+      while (true) {
+        if (_isCancelled || (activeCancel != null && activeCancel.isCancelled)) break;
+        if (currentIndex >= targetIps.length) break;
+        final ip = targetIps[currentIndex++];
 
-      for (final res in results) {
+        final res = await pingHost(
+          ip,
+          timeoutMs: timeoutMs,
+          sourceIp: sourceIp,
+          cancelToken: activeCancel,
+        );
+
         completed++;
         if (res.reachable) {
           activeHosts.add(res.ip);
@@ -225,6 +287,10 @@ class IcmpService {
         onProgress?.call(completed, total, res.ip, res.reachable);
       }
     }
+
+    final poolSize = concurrency.clamp(1, targetIps.length);
+    final workers = List.generate(poolSize, (_) => worker());
+    await Future.wait(workers);
 
     return activeHosts;
   }

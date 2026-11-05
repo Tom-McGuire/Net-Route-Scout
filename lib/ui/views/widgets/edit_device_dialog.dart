@@ -48,6 +48,21 @@ class _EditDeviceDialogState extends State<EditDeviceDialog> {
         _categories = SharedDeviceDatabase.instance.getUnifiedCategories();
       }
     } catch (_) {}
+
+    // Safeguard against label vs key mismatch or missing category keys
+    if (_selectedCategory != null && _categories.isNotEmpty) {
+      final hasKey = _categories.any((c) => c.key == _selectedCategory);
+      if (!hasKey) {
+        final byLabel = _categories.where(
+          (c) => c.label.toLowerCase() == _selectedCategory!.toLowerCase(),
+        );
+        if (byLabel.isNotEmpty) {
+          _selectedCategory = byLabel.first.key;
+        } else {
+          _selectedCategory = null;
+        }
+      }
+    }
   }
 
   @override
@@ -228,6 +243,13 @@ class _EditDeviceDialogState extends State<EditDeviceDialog> {
                       if (rawMac.isEmpty) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(content: Text('MAC address is required to store in Shared Device DB')),
+                        );
+                        return;
+                      }
+
+                      if (!SharedDevice.isValidMac(rawMac)) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Invalid MAC address format. Expected 6 hex pairs, e.g. 00:1A:2B:3C:4D:5E')),
                         );
                         return;
                       }

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import '../../domain/models/cancellation_token.dart';
 import '../../domain/models/trace_hop.dart';
 import '../../domain/models/trace_result.dart';
 
@@ -50,9 +51,10 @@ class TracerouteService {
     int maxHops = 15,
     int timeoutMs = 1000,
     String? sourceIp,
+    CancellationToken? cancelToken,
     void Function(TraceHop hop)? onHopDiscovered,
   }) async {
-    if (_isCancelled) {
+    if (_isCancelled || (cancelToken != null && cancelToken.isCancelled)) {
       return TraceResult(
         targetIp: targetIp,
         hops: const [],
@@ -64,16 +66,16 @@ class TracerouteService {
 
     String executable;
     List<String> args;
+    final waitSec = (timeoutMs / 1000).ceil().clamp(1, 10);
 
     if (Platform.isWindows) {
       executable = 'tracert';
-      // NOTE: Windows tracert.exe "-S" is IPv6-only. Passing -S with an IPv4 address
-      // causes tracert to immediately exit with error code and fail.
-      // The OS automatically routes through the selected adapter corresponding to the subnet.
+      // Windows tracert -w takes milliseconds. Windows routes through the adapter matching the subnet.
       args = ['-d', '-h', '$maxHops', '-w', '$timeoutMs', targetIp];
     } else if (Platform.isMacOS) {
       executable = 'traceroute';
-      args = ['-n', '-m', '$maxHops', '-w', '$timeoutMs', '-q', '1', targetIp];
+      // macOS traceroute -w takes seconds.
+      args = ['-n', '-m', '$maxHops', '-w', '$waitSec', '-q', '1', targetIp];
     } else {
       // Linux
       final bin = await _resolveLinuxTracerouteBin();
@@ -81,49 +83,79 @@ class TracerouteService {
       if (bin == 'tracepath') {
         args = ['-n', '-m', '$maxHops', targetIp];
       } else {
-        args = ['-n', '-m', '$maxHops', '-w', '1', '-q', '1', targetIp];
+        args = ['-n', '-m', '$maxHops', '-w', '$waitSec', '-q', '1', targetIp];
       }
     }
 
     Process? proc;
+    Timer? timeoutTimer;
     final hops = <TraceHop>[];
     double? lastRtt;
     bool reached = false;
+    String? lastResponsiveIp;
+
+    void onCancel() {
+      try {
+        proc?.kill(ProcessSignal.sigkill);
+      } catch (_) {}
+    }
+
+    cancelToken?.onCancel(onCancel);
 
     try {
       proc = await Process.start(executable, args);
       _activeProcesses.add(proc);
+
+      // Drain stderr to prevent process stall if pipe buffer fills up
+      proc.stderr.drain<void>().catchError((_) {});
+
+      // Enforce total trace timeout
+      final totalTimeoutSec = (maxHops * waitSec + 6).clamp(10, 120);
+      timeoutTimer = Timer(Duration(seconds: totalTimeoutSec), () {
+        try {
+          proc?.kill(ProcessSignal.sigkill);
+        } catch (_) {}
+      });
 
       final lineStream = proc.stdout
           .transform(utf8.decoder)
           .transform(const LineSplitter());
 
       await for (final line in lineStream) {
-        if (_isCancelled) break;
-        final hop = _parseHopLine(line, executable);
+        if (_isCancelled || (cancelToken != null && cancelToken.isCancelled)) break;
+        final hop = parseHopLine(line, executable, previousIp: lastResponsiveIp);
         if (hop != null) {
-          hops.add(hop);
-          if (hop.rttMs != null) lastRtt = hop.rttMs;
-          if (hop.ip == targetIp) reached = true;
-          onHopDiscovered?.call(hop);
+          if (!hop.isTimeout) {
+            lastResponsiveIp = hop.ip;
+            if (hop.rttMs != null) lastRtt = hop.rttMs;
+            if (hop.ip == targetIp) reached = true;
+          }
+
+          // De-duplicate repeat lines for the same hop depth (e.g. tracepath pmtu updates)
+          if (hops.isNotEmpty && hops.last.depth == hop.depth) {
+            if (hops.last.isTimeout && !hop.isTimeout) {
+              hops.removeLast();
+              hops.add(hop);
+              onHopDiscovered?.call(hop);
+            }
+          } else {
+            hops.add(hop);
+            onHopDiscovered?.call(hop);
+          }
         }
       }
 
-      await proc.exitCode.timeout(
-        Duration(seconds: maxHops * 2 + 5),
-        onTimeout: () {
-          proc?.kill();
-          return -1;
-        },
-      );
-    } catch (e) {
-      // If process fails or cancelled
+      await proc.exitCode;
+    } catch (_) {
+      // Process was cancelled or failed
     } finally {
+      timeoutTimer?.cancel();
+      cancelToken?.removeListener(onCancel);
       if (proc != null) _activeProcesses.remove(proc);
     }
 
     // If last hop matches target, mark reachable
-    if (hops.isNotEmpty && hops.last.ip == targetIp) {
+    if (hops.isNotEmpty && hops.last.ip == targetIp && !hops.last.isTimeout) {
       reached = true;
     }
 
@@ -137,101 +169,141 @@ class TracerouteService {
   }
 
   /// Parses a single line from Windows tracert, Linux traceroute, or Linux tracepath.
-  TraceHop? _parseHopLine(String rawLine, String binary) {
+  static TraceHop? parseHopLine(String rawLine, String binary, {String? previousIp}) {
+    if (Platform.isWindows || binary == 'tracert') {
+      return parseWindowsTracertLine(rawLine, previousIp: previousIp);
+    } else if (binary == 'tracepath') {
+      return parseLinuxTracepathLine(rawLine, previousIp: previousIp);
+    } else {
+      return parseLinuxTracerouteLine(rawLine, previousIp: previousIp);
+    }
+  }
+
+  /// Parses a Windows tracert output line.
+  /// Handles normal lines, partial loss lines (e.g. `2 * 5 ms 4 ms 10.0.0.1`), and timeouts.
+  static TraceHop? parseWindowsTracertLine(String rawLine, {String? previousIp}) {
     final line = rawLine.trim();
     if (line.isEmpty) return null;
 
-    // 1. Linux `tracepath` format:
-    // " 1?: [LOCALHOST]                      pmtu 1500" -> ignore header
-    // " 1:  10.101.1.1                                            4.616ms"
-    // " 2:  no reply"
-    if (binary == 'tracepath') {
-      if (line.contains('?:') || line.contains('Resume:') || line.contains('Too many hops')) {
-        return null;
-      }
-      final tracepathMatch = RegExp(r'^(\d+):\s+(?:([0-9.]+)\s+.*?(\d+(?:\.\d+)?)\s*ms|(no reply))', caseSensitive: false)
-          .firstMatch(line);
-      if (tracepathMatch != null) {
-        final depth = int.tryParse(tracepathMatch.group(1)!) ?? 1;
-        final ip = tracepathMatch.group(2);
-        final rttStr = tracepathMatch.group(3);
-        final isNoReply = tracepathMatch.group(4) != null;
-
-        if (isNoReply || ip == null) {
-          return TraceHop(
-            depth: depth,
-            ip: 'Anon-Hop-Depth-$depth',
-            isTimeout: true,
-            rawText: line,
-          );
-        }
-        return TraceHop(
-          depth: depth,
-          ip: ip,
-          rttMs: double.tryParse(rttStr ?? ''),
-          rawText: line,
-        );
-      }
-    }
-
-    // 2. Linux / macOS `traceroute` format:
-    // " 1  10.101.1.1  0.512 ms"
-    // " 2  * * *" or " 2  *"
-    final tracerouteMatch = RegExp(r'^(\d+)\s+([0-9.*]+)(?:\s+(\d+(?:\.\d+)?)\s*ms)?').firstMatch(line);
-    if (tracerouteMatch != null) {
-      final depth = int.tryParse(tracerouteMatch.group(1)!) ?? 1;
-      final ipOrStar = tracerouteMatch.group(2)!;
-      final rttStr = tracerouteMatch.group(3);
-
-      if (ipOrStar.contains('*')) {
-        return TraceHop(
-          depth: depth,
-          ip: 'Anon-Hop-Depth-$depth',
-          isTimeout: true,
-          rawText: line,
-        );
-      }
-
-      if (_isValidIpv4(ipOrStar)) {
-        return TraceHop(
-          depth: depth,
-          ip: ipOrStar,
-          rttMs: rttStr != null ? double.tryParse(rttStr) : null,
-          rawText: line,
-        );
-      }
-    }
-
-    // 3. Windows `tracert` format:
-    // "  1    <1 ms    <1 ms    <1 ms  192.168.1.1"
-    // "  2     *        *        *     Request timed out."
     final winMatch = RegExp(r'^\s*(\d+)\s+(.+)$').firstMatch(line);
-    if (winMatch != null) {
-      final depth = int.tryParse(winMatch.group(1)!) ?? 1;
-      final remainder = winMatch.group(2)!;
+    if (winMatch == null) return null;
 
-      if (remainder.contains('Request timed out') || !RegExp(r'\d{1,3}(?:\.\d{1,3}){3}').hasMatch(remainder)) {
-        return TraceHop(
-          depth: depth,
-          ip: 'Anon-Hop-Depth-$depth',
-          isTimeout: true,
-          rawText: line,
-        );
-      }
+    final depth = int.tryParse(winMatch.group(1)!) ?? 1;
+    final remainder = winMatch.group(2)!;
 
-      final ipMatch = RegExp(r'(\d{1,3}(?:\.\d{1,3}){3})').firstMatch(remainder);
-      if (ipMatch != null) {
-        final ip = ipMatch.group(1)!;
-        // Find RTT in ms
-        final rttMatch = RegExp(r'(\d+(?:\.\d+)?)\s*ms').firstMatch(remainder);
-        final rtt = rttMatch != null ? double.tryParse(rttMatch.group(1)!) : null;
-        return TraceHop(
-          depth: depth,
-          ip: ip,
-          rttMs: rtt,
-          rawText: line,
-        );
+    // Look for IPv4 address
+    final ipMatch = RegExp(r'\b(\d{1,3}(?:\.\d{1,3}){3})\b').firstMatch(remainder);
+    if (ipMatch != null && _isValidIpv4(ipMatch.group(1)!)) {
+      final ip = ipMatch.group(1)!;
+      final rttMatches = RegExp(r'(?:<(\d+)|(\d+(?:\.\d+)?))\s*ms').allMatches(remainder);
+      double? minRtt;
+      for (final m in rttMatches) {
+        final val = m.group(1) != null ? 0.5 : double.tryParse(m.group(2)!);
+        if (val != null) {
+          if (minRtt == null || val < minRtt) minRtt = val;
+        }
       }
+      return TraceHop(
+        depth: depth,
+        ip: ip,
+        rttMs: minRtt,
+        isTimeout: false,
+        rawText: line,
+      );
+    }
+
+    // If no IP found and contains * or "Request timed out"
+    if (remainder.contains('*') || remainder.contains('Request timed out')) {
+      final prev = previousIp ?? 'root';
+      return TraceHop(
+        depth: depth,
+        ip: 'anon:$prev:$depth',
+        isTimeout: true,
+        rawText: line,
+      );
+    }
+
+    return null;
+  }
+
+  /// Parses a Linux / macOS traceroute output line.
+  static TraceHop? parseLinuxTracerouteLine(String rawLine, {String? previousIp}) {
+    final line = rawLine.trim();
+    if (line.isEmpty) return null;
+
+    final match = RegExp(r'^\s*(\d+)\s+(.+)$').firstMatch(line);
+    if (match == null) return null;
+
+    final depth = int.tryParse(match.group(1)!) ?? 1;
+    final remainder = match.group(2)!;
+
+    final ipMatch = RegExp(r'\b(\d{1,3}(?:\.\d{1,3}){3})\b').firstMatch(remainder);
+    if (ipMatch != null && _isValidIpv4(ipMatch.group(1)!)) {
+      final ip = ipMatch.group(1)!;
+      final rttMatches = RegExp(r'(\d+(?:\.\d+)?)\s*ms').allMatches(remainder);
+      double? minRtt;
+      for (final m in rttMatches) {
+        final val = double.tryParse(m.group(1)!);
+        if (val != null && (minRtt == null || val < minRtt)) minRtt = val;
+      }
+      return TraceHop(
+        depth: depth,
+        ip: ip,
+        rttMs: minRtt,
+        isTimeout: false,
+        rawText: line,
+      );
+    }
+
+    if (remainder.contains('*')) {
+      final prev = previousIp ?? 'root';
+      return TraceHop(
+        depth: depth,
+        ip: 'anon:$prev:$depth',
+        isTimeout: true,
+        rawText: line,
+      );
+    }
+
+    return null;
+  }
+
+  /// Parses a Linux tracepath output line.
+  static TraceHop? parseLinuxTracepathLine(String rawLine, {String? previousIp}) {
+    final line = rawLine.trim();
+    if (line.isEmpty) return null;
+    if (line.contains('?:') || line.contains('Resume:') || line.contains('Too many hops')) {
+      return null;
+    }
+
+    final match = RegExp(r'^\s*(\d+):\s+(.+)$').firstMatch(line);
+    if (match == null) return null;
+
+    final depth = int.tryParse(match.group(1)!) ?? 1;
+    final remainder = match.group(2)!;
+
+    if (remainder.contains('no reply')) {
+      final prev = previousIp ?? 'root';
+      return TraceHop(
+        depth: depth,
+        ip: 'anon:$prev:$depth',
+        isTimeout: true,
+        rawText: line,
+      );
+    }
+
+    final ipMatch = RegExp(r'\b(\d{1,3}(?:\.\d{1,3}){3})\b').firstMatch(remainder);
+    if (ipMatch != null && _isValidIpv4(ipMatch.group(1)!)) {
+      final ip = ipMatch.group(1)!;
+      final rttMatch = RegExp(r'(\d+(?:\.\d+)?)\s*ms').firstMatch(remainder);
+      final rtt = rttMatch != null ? double.tryParse(rttMatch.group(1)!) : null;
+      return TraceHop(
+        depth: depth,
+        ip: ip,
+        rttMs: rtt,
+        isTimeout: false,
+        rawText: line,
+      );
     }
 
     return null;
@@ -247,42 +319,46 @@ class TracerouteService {
     return true;
   }
 
-  /// Traces multiple target IPs concurrently using a worker pool.
+  /// Traces multiple target IPs concurrently using a queue-based worker pool.
   Future<List<TraceResult>> sweepTargets(
     List<String> targetIps, {
     int concurrency = 4,
     int maxHops = 15,
     int timeoutMs = 1000,
     String? sourceIp,
+    CancellationToken? cancelToken,
     void Function(int completed, int total, String currentIp, TraceResult result)? onTargetCompleted,
     void Function(String targetIp, TraceHop hop)? onHopDiscovered,
   }) async {
-    _isCancelled = false;
     final results = <TraceResult>[];
     var completed = 0;
     final total = targetIps.length;
+    var currentIndex = 0;
 
-    for (var i = 0; i < targetIps.length; i += concurrency) {
-      if (_isCancelled) break;
-      final end = (i + concurrency < targetIps.length) ? i + concurrency : targetIps.length;
-      final chunk = targetIps.sublist(i, end);
+    Future<void> worker() async {
+      while (true) {
+        if (_isCancelled || (cancelToken != null && cancelToken.isCancelled)) break;
+        if (currentIndex >= targetIps.length) break;
+        final targetIp = targetIps[currentIndex++];
 
-      final chunkFutures = chunk.map((targetIp) async {
         final res = await traceTarget(
           targetIp,
           maxHops: maxHops,
           timeoutMs: timeoutMs,
           sourceIp: sourceIp,
+          cancelToken: cancelToken,
           onHopDiscovered: (hop) => onHopDiscovered?.call(targetIp, hop),
         );
+
+        results.add(res);
         completed++;
         onTargetCompleted?.call(completed, total, targetIp, res);
-        return res;
-      });
-
-      final chunkResults = await Future.wait(chunkFutures);
-      results.addAll(chunkResults);
+      }
     }
+
+    final poolSize = concurrency.clamp(1, targetIps.length);
+    final workers = List.generate(poolSize, (_) => worker());
+    await Future.wait(workers);
 
     return results;
   }

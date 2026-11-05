@@ -2,6 +2,7 @@ import 'dart:collection';
 import 'package:flutter/material.dart';
 import '../../domain/models/network_edge.dart';
 import '../../domain/models/network_node.dart';
+import '../../domain/models/trace_hop.dart';
 import '../../domain/models/trace_result.dart';
 import '../services/arp_service.dart';
 import '../services/shared_device_service.dart';
@@ -34,13 +35,34 @@ class TopologyRepository {
     String? vendor,
     String? sharedName,
   }) {
+    final oldIp = _localHostIp;
     _localHostIp = ip;
     _gatewayIp = gatewayIp;
     if (macAddress != null && macAddress.isNotEmpty) _localHostMac = macAddress;
     if (vendor != null && vendor.isNotEmpty) _localHostVendor = vendor;
     if (sharedName != null && sharedName.isNotEmpty) _localHostSharedName = sharedName;
 
-    // Ensure root host node exists
+    // If host IP changed, remove the old host node so it doesn't linger as an orphan
+    Set<String> associatedTargets = {};
+    if (oldIp != ip && _nodes.containsKey(oldIp)) {
+      final oldNode = _nodes.remove(oldIp);
+      associatedTargets = oldNode?.associatedTargets ?? {};
+
+      // Re-anchor any edges that originated from the old host IP
+      final edgesToReanchor = _edges.entries.where((e) => e.value.sourceIp == oldIp).toList();
+      for (final e in edgesToReanchor) {
+        _edges.remove(e.key);
+        final newKey = '$ip->${e.value.targetIp}';
+        _edges[newKey] = NetworkEdge(
+          sourceIp: ip,
+          targetIp: e.value.targetIp,
+          targetRoutes: e.value.targetRoutes,
+        );
+      }
+    } else if (_nodes.containsKey(ip)) {
+      associatedTargets = _nodes[ip]?.associatedTargets ?? {};
+    }
+
     _nodes[ip] = NetworkNode(
       id: ip,
       ip: ip,
@@ -50,7 +72,7 @@ class TopologyRepository {
       vendor: _localHostVendor,
       hopDepth: 0,
       isLocalHost: true,
-      associatedTargets: {},
+      associatedTargets: associatedTargets,
     );
   }
 
@@ -78,7 +100,65 @@ class TopologyRepository {
     _selectedNodeId = nodeId;
   }
 
-  /// Ingests a new trace result into the DAG.
+  /// Ingests streamed partial hops for an in-flight trace.
+  /// Chains nodes sequentially from previous hop without marking intermediate hops as targets.
+  void ingestPartialHops(String targetIp, List<TraceHop> hops) {
+    if (hops.isEmpty) return;
+    var previousIp = _localHostIp;
+
+    for (var i = 0; i < hops.length; i++) {
+      final hop = hops[i];
+      final hopId = hop.ip;
+
+      // Skip self-loop if router repeated the same hop
+      if (hopId == previousIp) continue;
+
+      final existingNode = _nodes[hopId];
+      if (existingNode == null) {
+        _nodes[hopId] = NetworkNode(
+          id: hopId,
+          ip: hop.ip,
+          hopDepth: hop.depth,
+          isTarget: false, // Intermediate streaming hops are never marked as target
+          isUnresponsive: hop.isTimeout,
+          rttMs: hop.rttMs,
+          associatedTargets: {targetIp},
+        );
+      } else {
+        existingNode.associatedTargets.add(targetIp);
+        var updated = existingNode;
+        if (hop.rttMs != null && (updated.rttMs == null || hop.rttMs! < updated.rttMs!)) {
+          updated = updated.copyWith(rttMs: hop.rttMs);
+        }
+        if (!hop.isTimeout && updated.isUnresponsive) {
+          updated = updated.copyWith(isUnresponsive: false);
+        }
+        if (hop.depth < updated.hopDepth) {
+          updated = updated.copyWith(hopDepth: hop.depth);
+        }
+        _nodes[hopId] = updated;
+      }
+
+      // Sequential edge: previousIp -> hopId
+      final edgeKey = '$previousIp->$hopId';
+      final existingEdge = _edges[edgeKey];
+      if (existingEdge == null) {
+        _edges[edgeKey] = NetworkEdge(
+          sourceIp: previousIp,
+          targetIp: hopId,
+          targetRoutes: {targetIp},
+        );
+      } else {
+        existingEdge.targetRoutes.add(targetIp);
+      }
+
+      previousIp = hopId;
+    }
+
+    _nodes[_localHostIp]?.associatedTargets.add(targetIp);
+  }
+
+  /// Ingests a new complete trace result into the DAG.
   void ingestTraceResult(TraceResult trace) {
     _traces.removeWhere((t) => t.targetIp == trace.targetIp);
     _traces.add(trace);
@@ -87,8 +167,11 @@ class TopologyRepository {
 
     for (var i = 0; i < trace.hops.length; i++) {
       final hop = trace.hops[i];
-      final isLast = (i == trace.hops.length - 1);
+      final isDestinationTarget = (i == trace.hops.length - 1) && (hop.ip == trace.targetIp);
       final hopId = hop.ip;
+
+      // Prevent self-loops (e.g. repeated pmtu hops from tracepath)
+      if (hopId == previousIp) continue;
 
       // 1. Register or update node
       final existingNode = _nodes[hopId];
@@ -97,20 +180,27 @@ class TopologyRepository {
           id: hopId,
           ip: hop.ip,
           hopDepth: hop.depth,
-          isTarget: isLast,
+          isTarget: isDestinationTarget,
           isUnresponsive: hop.isTimeout,
           rttMs: hop.rttMs,
           associatedTargets: {trace.targetIp},
         );
       } else {
         existingNode.associatedTargets.add(trace.targetIp);
-        // If this hop is the target in this trace, mark it as target
-        if (isLast && !existingNode.isTarget) {
-          _nodes[hopId] = existingNode.copyWith(isTarget: true);
+        var updated = existingNode;
+        if (isDestinationTarget && !updated.isTarget) {
+          updated = updated.copyWith(isTarget: true);
         }
-        if (hop.rttMs != null && (existingNode.rttMs == null || hop.rttMs! < existingNode.rttMs!)) {
-          _nodes[hopId] = existingNode.copyWith(rttMs: hop.rttMs);
+        if (hop.rttMs != null && (updated.rttMs == null || hop.rttMs! < updated.rttMs!)) {
+          updated = updated.copyWith(rttMs: hop.rttMs);
         }
+        if (!hop.isTimeout && updated.isUnresponsive) {
+          updated = updated.copyWith(isUnresponsive: false);
+        }
+        if (hop.depth < updated.hopDepth) {
+          updated = updated.copyWith(hopDepth: hop.depth);
+        }
+        _nodes[hopId] = updated;
       }
 
       // 2. Register or update edge
@@ -160,7 +250,7 @@ class TopologyRepository {
         if (resolved != null) {
           node = node.copyWith(
             sharedDeviceName: resolved.friendlyName,
-            deviceCategoryKey: resolved.categoryLabel,
+            deviceCategoryKey: resolved.categoryKey,
             customCategoryColor: resolved.categoryColor,
             customCategoryIcon: resolved.categoryIcon,
             sharedNotes: resolved.device.notes,

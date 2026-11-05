@@ -6,14 +6,14 @@ import '../../domain/models/network_node.dart';
 import '../../domain/models/trace_result.dart';
 
 class ExportService {
-  /// Exports topology data to a JSON file chosen by the user.
-  static Future<String?> exportToJsonFile({
+  /// Builds the structured payload dictionary for topology exports.
+  static Map<String, dynamic> buildTopologyExportData({
     required Map<String, NetworkNode> nodes,
     required Map<String, NetworkEdge> edges,
     required List<TraceResult> traces,
     required String localHostIp,
-  }) async {
-    final exportData = {
+  }) {
+    return {
       'exported_at': DateTime.now().toIso8601String(),
       'app': 'Net Route Scout',
       'local_host_ip': localHostIp,
@@ -26,6 +26,21 @@ class ExportService {
       'edges': edges.values.map((e) => e.toJson()).toList(),
       'traces': traces.map((t) => t.toJson()).toList(),
     };
+  }
+
+  /// Exports topology data to a JSON file chosen by the user.
+  static Future<String?> exportToJsonFile({
+    required Map<String, NetworkNode> nodes,
+    required Map<String, NetworkEdge> edges,
+    required List<TraceResult> traces,
+    required String localHostIp,
+  }) async {
+    final exportData = buildTopologyExportData(
+      nodes: nodes,
+      edges: edges,
+      traces: traces,
+      localHostIp: localHostIp,
+    );
 
     final jsonString = const JsonEncoder.withIndent('  ').convert(exportData);
     final bytes = Uint8List.fromList(utf8.encode(jsonString));
@@ -57,19 +72,12 @@ class ExportService {
     required List<TraceResult> traces,
     required String localHostIp,
   }) async {
-    final exportData = {
-      'exported_at': DateTime.now().toIso8601String(),
-      'app': 'Net Route Scout',
-      'local_host_ip': localHostIp,
-      'statistics': {
-        'total_nodes': nodes.length,
-        'total_edges': edges.length,
-        'total_targets': traces.length,
-      },
-      'nodes': nodes.values.map((n) => n.toJson()).toList(),
-      'edges': edges.values.map((e) => e.toJson()).toList(),
-      'traces': traces.map((t) => t.toJson()).toList(),
-    };
+    final exportData = buildTopologyExportData(
+      nodes: nodes,
+      edges: edges,
+      traces: traces,
+      localHostIp: localHostIp,
+    );
 
     final jsonString = const JsonEncoder.withIndent('  ').convert(exportData);
     await Clipboard.setData(ClipboardData(text: jsonString));

@@ -40,12 +40,16 @@ class NetworkAdapterService {
   static Future<List<NetworkAdapterInfo>> _discoverLinuxAdapters() async {
     final list = <NetworkAdapterInfo>[];
     String? defaultGw;
+    String? defaultDev;
 
     try {
       final gwRes = await Process.run('ip', ['route', 'show', 'default']);
       if (gwRes.exitCode == 0) {
-        final match = RegExp(r'default\s+via\s+(\d{1,3}(?:\.\d{1,3}){3})').firstMatch(gwRes.stdout.toString());
-        if (match != null) defaultGw = match.group(1);
+        final match = RegExp(r'default\s+via\s+(\d{1,3}(?:\.\d{1,3}){3})(?:\s+dev\s+([^\s]+))?').firstMatch(gwRes.stdout.toString());
+        if (match != null) {
+          defaultGw = match.group(1);
+          defaultDev = match.group(2);
+        }
       }
     } catch (_) {}
 
@@ -73,15 +77,19 @@ class NetworkAdapterService {
         try {
           final addrRes = await Process.run('ip', ['-o', '-4', 'addr', 'show', 'dev', iface.name]);
           if (addrRes.exitCode == 0) {
-            final match = RegExp(r'inet\s+(\d{1,3}(?:\.\d{1,3}){3})/(\d{1,2})').firstMatch(addrRes.stdout.toString());
+            final match = RegExp('inet\\s+${RegExp.escape(addr.address)}/(\\d{1,2})').firstMatch(addrRes.stdout.toString());
             if (match != null) {
-              prefix = int.tryParse(match.group(2)!) ?? 24;
+              prefix = int.tryParse(match.group(1)!) ?? 24;
+            } else {
+              final anyMatch = RegExp(r'inet\s+\d{1,3}(?:\.\d{1,3}){3}/(\d{1,2})').firstMatch(addrRes.stdout.toString());
+              if (anyMatch != null) prefix = int.tryParse(anyMatch.group(1)!) ?? 24;
             }
           }
         } catch (_) {}
 
         final cidr = NetworkAdapterInfo.calculateSubnetCidr(addr.address, prefix);
         final vendor = mac != null ? OuiLookup.lookupVendor(mac) : null;
+        final isDefaultAdapter = defaultDev == null || iface.name == defaultDev;
 
         list.add(
           NetworkAdapterInfo(
@@ -92,7 +100,7 @@ class NetworkAdapterService {
             vendor: vendor != 'Unknown Vendor' ? vendor : null,
             subnetCidr: cidr,
             prefixLength: prefix,
-            gatewayIp: defaultGw,
+            gatewayIp: isDefaultAdapter ? defaultGw : null,
           ),
         );
       }
@@ -258,12 +266,16 @@ $out | ConvertTo-Json -Compress
   static Future<List<NetworkAdapterInfo>> _discoverMacAdapters() async {
     final list = <NetworkAdapterInfo>[];
     String? defaultGw;
+    String? defaultDev;
 
     try {
       final gwRes = await Process.run('route', ['-n', 'get', 'default']);
       if (gwRes.exitCode == 0) {
-        final match = RegExp(r'gateway:\s*(\d{1,3}(?:\.\d{1,3}){3})').firstMatch(gwRes.stdout.toString());
-        if (match != null) defaultGw = match.group(1);
+        final out = gwRes.stdout.toString();
+        final gwMatch = RegExp(r'gateway:\s*(\d{1,3}(?:\.\d{1,3}){3})').firstMatch(out);
+        if (gwMatch != null) defaultGw = gwMatch.group(1);
+        final devMatch = RegExp(r'interface:\s*([^\s]+)').firstMatch(out);
+        if (devMatch != null) defaultDev = devMatch.group(1);
       }
     } catch (_) {}
 
@@ -277,18 +289,34 @@ $out | ConvertTo-Json -Compress
         if (addr.isLoopback || addr.address.startsWith('169.254.')) continue;
 
         String? mac;
+        int prefix = 24;
         try {
           final res = await Process.run('ifconfig', [iface.name]);
           if (res.exitCode == 0) {
-            final match = RegExp(r'ether\s+([0-9a-fA-F:]{17})').firstMatch(res.stdout.toString());
+            final out = res.stdout.toString();
+            final match = RegExp(r'ether\s+([0-9a-fA-F:]{17})').firstMatch(out);
             if (match != null) {
               mac = NetworkAdapterInfo.normalizeMac(match.group(1)!);
+            }
+            final maskMatch = RegExp('inet\\s+${RegExp.escape(addr.address)}\\s+netmask\\s+0x([0-9a-fA-F]{8})').firstMatch(out);
+            if (maskMatch != null) {
+              final hex = int.tryParse(maskMatch.group(1)!, radix: 16);
+              if (hex != null) {
+                var count = 0;
+                var n = hex;
+                while (n > 0) {
+                  if ((n & 1) == 1) count++;
+                  n >>= 1;
+                }
+                if (count > 0 && count <= 32) prefix = count;
+              }
             }
           }
         } catch (_) {}
 
-        final cidr = NetworkAdapterInfo.calculateSubnetCidr(addr.address, 24);
+        final cidr = NetworkAdapterInfo.calculateSubnetCidr(addr.address, prefix);
         final vendor = mac != null ? OuiLookup.lookupVendor(mac) : null;
+        final isDefaultAdapter = defaultDev == null || iface.name == defaultDev;
 
         list.add(
           NetworkAdapterInfo(
@@ -298,8 +326,8 @@ $out | ConvertTo-Json -Compress
             macAddress: mac,
             vendor: vendor != 'Unknown Vendor' ? vendor : null,
             subnetCidr: cidr,
-            prefixLength: 24,
-            gatewayIp: defaultGw,
+            prefixLength: prefix,
+            gatewayIp: isDefaultAdapter ? defaultGw : null,
           ),
         );
       }

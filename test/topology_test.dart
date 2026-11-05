@@ -153,5 +153,124 @@ void main() {
       expect(host.vendor, 'Intel Corporate');
       expect(host.sharedDeviceName, 'Engineering Laptop');
     });
+
+    test('ingestPartialHops chains sequentially without fake star edges or premature target marking', () {
+      repo.setLocalHost('10.0.0.5');
+
+      // Live stream hop 1, then hop 2, then hop 3
+      final hop1 = const TraceHop(depth: 1, ip: '10.0.0.1', rttMs: 1.0);
+      final hop2 = const TraceHop(depth: 2, ip: '172.16.0.1', rttMs: 2.0);
+      final hop3 = const TraceHop(depth: 3, ip: '8.8.8.8', rttMs: 15.0);
+
+      repo.ingestPartialHops('8.8.8.8', [hop1]);
+      repo.ingestPartialHops('8.8.8.8', [hop1, hop2]);
+      repo.ingestPartialHops('8.8.8.8', [hop1, hop2, hop3]);
+
+      // Intermediate hop 172.16.0.1 must NOT be marked target
+      expect(repo.nodes['172.16.0.1']!.isTarget, isFalse);
+      expect(repo.nodes['10.0.0.1']!.isTarget, isFalse);
+      expect(repo.nodes['8.8.8.8']!.isTarget, isFalse); // not marked target until trace completes
+
+      // Edges must be 10.0.0.5->10.0.0.1 and 10.0.0.1->172.16.0.1 and 172.16.0.1->8.8.8.8
+      expect(repo.edges.containsKey('10.0.0.5->10.0.0.1'), isTrue);
+      expect(repo.edges.containsKey('10.0.0.1->172.16.0.1'), isTrue);
+      expect(repo.edges.containsKey('172.16.0.1->8.8.8.8'), isTrue);
+
+      // Must NOT contain fake star edges from local host to intermediate hops
+      expect(repo.edges.containsKey('10.0.0.5->172.16.0.1'), isFalse);
+      expect(repo.edges.containsKey('10.0.0.5->8.8.8.8'), isFalse);
+
+      // Now complete trace
+      repo.ingestTraceResult(
+        TraceResult(
+          targetIp: '8.8.8.8',
+          hops: [hop1, hop2, hop3],
+          isReachable: true,
+          completedAt: DateTime.now(),
+        ),
+      );
+
+      expect(repo.nodes['8.8.8.8']!.isTarget, isTrue);
+      expect(repo.nodes['172.16.0.1']!.isTarget, isFalse);
+    });
+
+    test('ingestTraceResult preserves isTarget when RTT improves and clears unresponsive', () {
+      repo.setLocalHost('10.0.0.5');
+
+      // First trace: target reached with 20ms
+      repo.ingestTraceResult(
+        TraceResult(
+          targetIp: '8.8.8.8',
+          hops: const [
+            TraceHop(depth: 1, ip: '10.0.0.1', rttMs: 2.0),
+            TraceHop(depth: 2, ip: '8.8.8.8', rttMs: 20.0),
+          ],
+          isReachable: true,
+          completedAt: DateTime.now(),
+        ),
+      );
+
+      expect(repo.nodes['8.8.8.8']!.isTarget, isTrue);
+      expect(repo.nodes['8.8.8.8']!.rttMs, 20.0);
+
+      // Second trace: RTT improves to 12ms
+      repo.ingestTraceResult(
+        TraceResult(
+          targetIp: '8.8.8.8',
+          hops: const [
+            TraceHop(depth: 1, ip: '10.0.0.1', rttMs: 1.5),
+            TraceHop(depth: 2, ip: '8.8.8.8', rttMs: 12.0),
+          ],
+          isReachable: true,
+          completedAt: DateTime.now(),
+        ),
+      );
+
+      // isTarget must NOT have been overwritten by RTT update
+      expect(repo.nodes['8.8.8.8']!.isTarget, isTrue);
+      expect(repo.nodes['8.8.8.8']!.rttMs, 12.0);
+    });
+
+    test('Switching local host IP removes old host node and updates root edges', () {
+      repo.setLocalHost('192.168.1.100');
+      repo.ingestTraceResult(
+        TraceResult(
+          targetIp: '192.168.1.1',
+          hops: const [
+            TraceHop(depth: 1, ip: '192.168.1.1', rttMs: 1.0),
+          ],
+          isReachable: true,
+          completedAt: DateTime.now(),
+        ),
+      );
+
+      expect(repo.nodes.containsKey('192.168.1.100'), isTrue);
+      expect(repo.edges.containsKey('192.168.1.100->192.168.1.1'), isTrue);
+
+      // Switch adapter to 10.0.0.5
+      repo.setLocalHost('10.0.0.5');
+
+      expect(repo.nodes.containsKey('192.168.1.100'), isFalse);
+      expect(repo.nodes.containsKey('10.0.0.5'), isTrue);
+      expect(repo.edges.containsKey('10.0.0.5->192.168.1.1'), isTrue);
+    });
+
+    test('Prevents self-loop edges on repeated hops', () {
+      repo.setLocalHost('10.0.0.5');
+      repo.ingestTraceResult(
+        TraceResult(
+          targetIp: '8.8.8.8',
+          hops: const [
+            TraceHop(depth: 1, ip: '10.0.0.1', rttMs: 1.0),
+            TraceHop(depth: 1, ip: '10.0.0.1', rttMs: 0.9), // repeated hop
+            TraceHop(depth: 2, ip: '8.8.8.8', rttMs: 10.0),
+          ],
+          isReachable: true,
+          completedAt: DateTime.now(),
+        ),
+      );
+
+      expect(repo.edges.containsKey('10.0.0.1->10.0.0.1'), isFalse);
+    });
   });
 }

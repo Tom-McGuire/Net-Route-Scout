@@ -14,11 +14,13 @@ class FilterToolbar extends StatefulWidget {
 class _FilterToolbarState extends State<FilterToolbar> {
   late final TextEditingController _targetController;
   late final TextEditingController _searchController;
+  String _lastSyncedTarget = '';
 
   @override
   void initState() {
     super.initState();
     final vm = context.read<TopologyViewModel>();
+    _lastSyncedTarget = vm.targetInput;
     _targetController = TextEditingController(text: vm.targetInput);
     _searchController = TextEditingController(text: vm.searchQuery);
   }
@@ -34,9 +36,12 @@ class _FilterToolbarState extends State<FilterToolbar> {
   Widget build(BuildContext context) {
     final vm = context.watch<TopologyViewModel>();
 
-    // Keep text controller synchronized if modified externally
-    if (_targetController.text != vm.targetInput && !vm.isScanning) {
-      _targetController.text = vm.targetInput;
+    // Synchronize controller only when ViewModel targetInput changed externally (e.g. preset or adapter change)
+    if (vm.targetInput != _lastSyncedTarget) {
+      _lastSyncedTarget = vm.targetInput;
+      if (_targetController.text != vm.targetInput) {
+        _targetController.text = vm.targetInput;
+      }
     }
 
     return Container(
@@ -74,6 +79,7 @@ class _FilterToolbarState extends State<FilterToolbar> {
                         : (adapter) {
                             if (adapter != null) {
                               vm.selectAdapter(adapter);
+                              _lastSyncedTarget = adapter.subnetCidr;
                               _targetController.text = adapter.subnetCidr;
                             }
                           },
@@ -84,7 +90,7 @@ class _FilterToolbarState extends State<FilterToolbar> {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(
-                              adapter.displayName,
+                              adapter.name,
                               style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.white),
                             ),
                             const SizedBox(width: 6),

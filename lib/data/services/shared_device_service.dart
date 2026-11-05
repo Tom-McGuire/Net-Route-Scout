@@ -5,6 +5,7 @@ import 'package:network_suite_shared/network_suite_shared.dart';
 class SharedDeviceResolvedInfo {
   final SharedDevice device;
   final String friendlyName;
+  final String categoryKey;
   final String categoryLabel;
   final IconData categoryIcon;
   final Color? categoryColor;
@@ -12,6 +13,7 @@ class SharedDeviceResolvedInfo {
   const SharedDeviceResolvedInfo({
     required this.device,
     required this.friendlyName,
+    required this.categoryKey,
     required this.categoryLabel,
     required this.categoryIcon,
     this.categoryColor,
@@ -26,7 +28,9 @@ class SharedDeviceService {
 
   Future<void> init() async {
     try {
-      await SharedDeviceDatabase.instance.init();
+      if (!SharedDeviceDatabase.instance.isInitialized) {
+        await SharedDeviceDatabase.instance.init();
+      }
       _dbSubscription = SharedDeviceDatabase.instance.onDatabaseChanged.listen((_) {
         _changeNotifier.add(null);
       });
@@ -62,6 +66,7 @@ class SharedDeviceService {
     return SharedDeviceResolvedInfo(
       device: dev,
       friendlyName: dev.name,
+      categoryKey: dev.deviceType ?? unified.key,
       categoryLabel: unified.label,
       categoryIcon: unified.icon,
       categoryColor: unified.color,

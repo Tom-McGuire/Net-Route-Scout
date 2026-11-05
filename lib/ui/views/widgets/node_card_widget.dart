@@ -7,6 +7,7 @@ class NodeCardWidget extends StatelessWidget {
   final bool isSelected;
   final bool isOnActivePath;
   final bool isDimmed;
+  final bool isSearchMatch;
   final VoidCallback onTap;
 
   const NodeCardWidget({
@@ -15,6 +16,7 @@ class NodeCardWidget extends StatelessWidget {
     required this.isSelected,
     required this.isOnActivePath,
     required this.isDimmed,
+    this.isSearchMatch = false,
     required this.onTap,
   });
 
@@ -23,12 +25,15 @@ class NodeCardWidget extends StatelessWidget {
     final themeColor = _getNodeColor(node);
     final badgeLabel = _getNodeBadgeLabel(node);
     final iconData = _getNodeIcon(node);
+    final displayIp = node.ip.startsWith('anon:') ? 'Anon-Hop-${node.hopDepth}' : node.ip;
 
     final borderColor = isSelected || isOnActivePath
         ? AppTheme.activeHighlight
-        : themeColor.withValues(alpha: node.isUnresponsive ? 0.3 : 0.6);
+        : isSearchMatch
+            ? const Color(0xFFF59E0B)
+            : themeColor.withValues(alpha: node.isUnresponsive ? 0.3 : 0.6);
 
-    final borderWidth = isSelected ? 2.5 : (isOnActivePath ? 2.0 : 1.2);
+    final borderWidth = isSelected ? 2.5 : ((isOnActivePath || isSearchMatch) ? 2.0 : 1.2);
 
     return AnimatedOpacity(
       duration: const Duration(milliseconds: 200),
@@ -174,7 +179,7 @@ class NodeCardWidget extends StatelessWidget {
                       ),
                       const SizedBox(height: 1),
                       Text(
-                        node.ip,
+                        displayIp,
                         style: const TextStyle(
                           fontSize: 10.5,
                           fontFamily: 'monospace',
@@ -196,7 +201,7 @@ class NodeCardWidget extends StatelessWidget {
                       ),
                       const SizedBox(height: 1),
                       Text(
-                        node.ip,
+                        displayIp,
                         style: const TextStyle(
                           fontSize: 10.5,
                           fontFamily: 'monospace',
@@ -207,7 +212,7 @@ class NodeCardWidget extends StatelessWidget {
                       ),
                     ] else ...[
                       Text(
-                        node.ip,
+                        displayIp,
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.bold,

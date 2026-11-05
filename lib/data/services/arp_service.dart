@@ -189,7 +189,7 @@ class ArpService {
   }
 
   /// Performs asynchronous reverse DNS lookup on [ip].
-  Future<String?> reverseDns(String ip, {Duration timeout = const Duration(milliseconds: 180)}) async {
+  Future<String?> reverseDns(String ip, {Duration timeout = const Duration(milliseconds: 1500)}) async {
     try {
       final addr = InternetAddress(ip);
       final rev = await addr.reverse().timeout(timeout);

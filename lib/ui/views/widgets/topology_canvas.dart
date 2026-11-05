@@ -69,13 +69,23 @@ class _TopologyCanvasState extends State<TopologyCanvas> {
 
     final sortedDepths = layers.keys.toList()..sort();
 
-    // 2. Compute (x, y) coordinates for each node
+    final hasSearch = vm.searchQuery.trim().isNotEmpty;
+    final matchingNodeIds = hasSearch ? vm.filteredNodes.map((n) => n.id).toSet() : const <String>{};
+
+    // 2. Compute (x, y) coordinates for each node with stable deterministic ordering
     final nodePositions = <String, Offset>{};
     var maxDepth = 0;
     var maxNodesInLayer = 0;
 
     for (final depth in sortedDepths) {
       final list = layers[depth]!;
+      // Sort deterministically to prevent cards jumping around when HashMap rehashes
+      list.sort((a, b) {
+        if (a.isLocalHost) return -1;
+        if (b.isLocalHost) return 1;
+        return a.ip.compareTo(b.ip);
+      });
+
       if (depth > maxDepth) maxDepth = depth;
       if (list.length > maxNodesInLayer) maxNodesInLayer = list.length;
 
@@ -128,24 +138,32 @@ class _TopologyCanvasState extends State<TopologyCanvas> {
 
                 // Node Cards
                 for (final node in nodes.values) ...[
-                  if (nodePositions.containsKey(node.id))
-                    Positioned(
-                      left: nodePositions[node.id]!.dx,
-                      top: nodePositions[node.id]!.dy,
-                      child: NodeCardWidget(
-                        node: node,
-                        isSelected: selectedNodeId == node.id,
-                        isOnActivePath: activeNodeIds.contains(node.id),
-                        isDimmed: hasSelection && !activeNodeIds.contains(node.id),
-                        onTap: () {
-                          if (selectedNodeId == node.id) {
-                            vm.clearSelection();
-                          } else {
-                            vm.selectNode(node.id);
-                          }
-                        },
-                      ),
-                    ),
+                  if (nodePositions.containsKey(node.id)) ...[
+                    Builder(builder: (context) {
+                      final isSearchMatch = hasSearch && matchingNodeIds.contains(node.id);
+                      final isDimmedBySearch = hasSearch && !isSearchMatch;
+                      final isDimmedBySelection = hasSelection && !activeNodeIds.contains(node.id);
+
+                      return Positioned(
+                        left: nodePositions[node.id]!.dx,
+                        top: nodePositions[node.id]!.dy,
+                        child: NodeCardWidget(
+                          node: node,
+                          isSelected: selectedNodeId == node.id,
+                          isOnActivePath: activeNodeIds.contains(node.id),
+                          isDimmed: isDimmedBySelection || isDimmedBySearch,
+                          isSearchMatch: isSearchMatch,
+                          onTap: () {
+                            if (selectedNodeId == node.id) {
+                              vm.clearSelection();
+                            } else {
+                              vm.selectNode(node.id);
+                            }
+                          },
+                        ),
+                      );
+                    }),
+                  ],
                 ],
               ],
             ),

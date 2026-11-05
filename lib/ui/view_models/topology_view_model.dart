@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:network_suite_shared/network_suite_shared.dart';
 import '../../core/constants.dart';
@@ -10,10 +11,12 @@ import '../../data/services/icmp_service.dart';
 import '../../data/services/network_adapter_service.dart';
 import '../../data/services/shared_device_service.dart';
 import '../../data/services/traceroute_service.dart';
+import '../../domain/models/cancellation_token.dart';
 import '../../domain/models/network_adapter_info.dart';
 import '../../domain/models/network_edge.dart';
 import '../../domain/models/network_node.dart';
 import '../../domain/models/scan_progress.dart';
+import '../../domain/models/trace_hop.dart';
 import '../../domain/models/trace_result.dart';
 
 enum TopologyViewMode {
@@ -23,13 +26,17 @@ enum TopologyViewMode {
 }
 
 class TopologyViewModel extends ChangeNotifier {
-  final TopologyRepository _repository = TopologyRepository();
-  final TracerouteService _tracerouteService = TracerouteService();
-  final ArpService _arpService = ArpService();
-  final IcmpService _icmpService = IcmpService();
-  final SharedDeviceService _sharedDeviceService = SharedDeviceService();
+  final TopologyRepository _repository;
+  final TracerouteService _tracerouteService;
+  final ArpService _arpService;
+  final IcmpService _icmpService;
+  final SharedDeviceService _sharedDeviceService;
 
   StreamSubscription<void>? _dbSubscription;
+  CancellationToken? _currentScanToken;
+  bool _disposed = false;
+  Timer? _throttleTimer;
+  bool _needsNotify = false;
 
   // View State
   List<NetworkAdapterInfo> _adapters = [];
@@ -87,8 +94,47 @@ class TopologyViewModel extends ChangeNotifier {
     }).toList();
   }
 
-  TopologyViewModel() {
-    _initServices();
+  TopologyViewModel({
+    TopologyRepository? repository,
+    TracerouteService? tracerouteService,
+    ArpService? arpService,
+    IcmpService? icmpService,
+    SharedDeviceService? sharedDeviceService,
+    bool autoInit = true,
+  })  : _repository = repository ?? TopologyRepository(),
+        _tracerouteService = tracerouteService ?? TracerouteService(),
+        _arpService = arpService ?? ArpService(),
+        _icmpService = icmpService ?? IcmpService(),
+        _sharedDeviceService = sharedDeviceService ?? SharedDeviceService() {
+    if (autoInit) {
+      _initServices();
+    }
+  }
+
+  /// Safe notifyListener calls that guard against disposed state.
+  void _notify() {
+    if (!_disposed) {
+      _throttleTimer?.cancel();
+      _needsNotify = false;
+      notifyListeners();
+    }
+  }
+
+  /// Throttled notify to prevent hundreds of rebuilds/sec during high-concurrency sweeps.
+  void _notifyThrottled([Duration interval = const Duration(milliseconds: 60)]) {
+    if (_disposed) return;
+    if (_throttleTimer?.isActive ?? false) {
+      _needsNotify = true;
+      return;
+    }
+    notifyListeners();
+    _throttleTimer = Timer(interval, () {
+      if (_disposed) return;
+      if (_needsNotify) {
+        _needsNotify = false;
+        notifyListeners();
+      }
+    });
   }
 
   Future<void> _initServices() async {
@@ -127,7 +173,7 @@ class TopologyViewModel extends ChangeNotifier {
       sharedDeviceService: _sharedDeviceService,
     );
 
-    notifyListeners();
+    _notify();
   }
 
   /// Refreshes network adapter list and retains/picks current selection.
@@ -154,7 +200,7 @@ class TopologyViewModel extends ChangeNotifier {
         selectAdapter(best, autoPopulateTarget: _targetInput.isEmpty);
       }
     } catch (_) {}
-    notifyListeners();
+    _notify();
   }
 
   /// Selects the network adapter to carry out discovery and sets local host attributes.
@@ -185,53 +231,54 @@ class TopologyViewModel extends ChangeNotifier {
       arpCache: _cachedArp,
       sharedDeviceService: _sharedDeviceService,
     );
-    notifyListeners();
+    _notify();
   }
 
   void setTargetInput(String value) {
     _targetInput = value;
-    notifyListeners();
+    _notify();
   }
 
   void setConcurrency(int value) {
     _concurrency = value.clamp(1, 16);
-    notifyListeners();
+    _notify();
   }
 
   void setMaxHops(int value) {
     _maxHops = value.clamp(1, 30);
-    notifyListeners();
+    _notify();
   }
 
   void setViewMode(TopologyViewMode mode) {
     _viewMode = mode;
-    notifyListeners();
+    _notify();
   }
 
   void setSearchQuery(String query) {
     _searchQuery = query;
-    notifyListeners();
+    _notify();
   }
 
   void selectNode(String? nodeId) {
     _repository.selectNode(nodeId);
-    notifyListeners();
+    _notify();
   }
 
   void clearSelection() {
     _repository.selectNode(null);
-    notifyListeners();
+    _notify();
   }
 
   void clearGraph() {
     _repository.clear();
     _scanProgress = const ScanProgress();
     _statusBannerText = null;
-    notifyListeners();
+    _notify();
   }
 
   /// Cancels any running scan immediately.
   Future<void> cancelSweep() async {
+    _currentScanToken?.cancel();
     _icmpService.cancel();
     _tracerouteService.cancel();
     _scanProgress = _scanProgress.copyWith(
@@ -239,23 +286,32 @@ class TopologyViewModel extends ChangeNotifier {
       isScanning: false,
     );
     _statusBannerText = 'Sweep cancelled by user.';
-    notifyListeners();
+    _notify();
   }
 
   /// Starts the 2-phase discovery pipeline:
-  /// Phase 1: Pre-flight ICMP ping sweep (filters offline hosts & warms kernel ARP cache)
-  /// Phase 2: Multi-hop OS native traceroute sweep with concurrency worker pool
+  /// Phase 1: Pre-flight ICMP ping sweep with queue worker pool
+  /// Phase 2: Multi-hop OS native traceroute sweep with sequential live hop ingestion
   Future<void> startSweep() async {
     if (_scanProgress.isScanning) return;
 
     final targetIps = IcmpService.expandTargetSpec(_targetInput, maxHosts: AppConstants.maxSweepHosts);
     if (targetIps.isEmpty) {
       _statusBannerText = 'Invalid target specification. Enter a valid IPv4, CIDR (e.g. 192.168.1.0/24), or range.';
-      notifyListeners();
+      _notify();
       return;
     }
 
-    _statusBannerText = null;
+    final totalExpected = IcmpService.calculateTargetCount(_targetInput);
+    if (totalExpected > AppConstants.maxSweepHosts) {
+      _statusBannerText = 'Target range expanded to $totalExpected hosts. Capped to first ${AppConstants.maxSweepHosts} hosts for performance.';
+    } else {
+      _statusBannerText = null;
+    }
+
+    final token = CancellationToken();
+    _currentScanToken = token;
+
     _scanProgress = ScanProgress(
       phase: 'Phase 1: Pre-Flight ICMP Sweep (Pinging ${targetIps.length} hosts)...',
       totalTargets: targetIps.length,
@@ -263,7 +319,7 @@ class TopologyViewModel extends ChangeNotifier {
       activeWorkers: _concurrency,
       isScanning: true,
     );
-    notifyListeners();
+    _notify();
 
     // Harvest ARP cache in parallel
     _cachedArp = await _arpService.readSystemArpCache();
@@ -278,24 +334,24 @@ class TopologyViewModel extends ChangeNotifier {
         concurrency: 16,
         timeoutMs: 350,
         sourceIp: _selectedAdapter?.ipAddress,
+        cancelToken: token,
         onProgress: (completed, total, currentIp, reached) {
+          if (_disposed || token.isCancelled) return;
           _scanProgress = _scanProgress.copyWith(
             completedTargets: completed,
             currentTarget: currentIp,
           );
-          notifyListeners();
+          _notifyThrottled();
         },
       );
     }
 
-    if (_icmpService.isCancelled) return;
+    if (_disposed || token.isCancelled) return;
 
     // Refresh ARP table to catch all newly probed MACs
     _cachedArp = await _arpService.readSystemArpCache();
 
-    // If ICMP ping had no responses (e.g. firewalls drop ICMP echo),
-    // check ARP table for devices that responded to ARP requests,
-    // or fall back to direct traceroute for small target sets.
+    // Fallback if ICMP ping got no responses (e.g. Windows Firewall blocks ICMP echo)
     if (liveHosts.isEmpty) {
       final targetSet = targetIps.toSet();
       final arpDiscovered = _cachedArp.keys.where((ip) => targetSet.contains(ip)).toList();
@@ -312,7 +368,7 @@ class TopologyViewModel extends ChangeNotifier {
         isScanning: false,
       );
       _statusBannerText = 'No responsive hosts answered ICMP ping or ARP in the specified range.';
-      notifyListeners();
+      _notify();
       return;
     }
 
@@ -324,7 +380,10 @@ class TopologyViewModel extends ChangeNotifier {
       activeWorkers: _concurrency,
       isScanning: true,
     );
-    notifyListeners();
+    _notify();
+
+    // Track cumulative in-flight hops to prevent fake star edges and false target markings
+    final inFlightHops = <String, List<TraceHop>>{};
 
     await _tracerouteService.sweepTargets(
       liveHosts,
@@ -332,32 +391,37 @@ class TopologyViewModel extends ChangeNotifier {
       maxHops: _maxHops,
       timeoutMs: 1000,
       sourceIp: _selectedAdapter?.ipAddress,
+      cancelToken: token,
       onHopDiscovered: (targetIp, hop) {
-        // Stream live hop into UI
-        _repository.ingestTraceResult(
-          TraceResult(
-            targetIp: targetIp,
-            hops: [hop],
-            isReachable: false,
-            completedAt: DateTime.now(),
-          ),
-        );
-        notifyListeners();
+        if (_disposed || token.isCancelled) return;
+        final list = inFlightHops.putIfAbsent(targetIp, () => []);
+        final idx = list.indexWhere((h) => h.depth == hop.depth);
+        if (idx >= 0) {
+          list[idx] = hop;
+        } else {
+          list.add(hop);
+        }
+        list.sort((a, b) => a.depth.compareTo(b.depth));
+        _repository.ingestPartialHops(targetIp, list);
+        _notifyThrottled();
       },
       onTargetCompleted: (completed, total, currentIp, result) {
+        if (_disposed || token.isCancelled) return;
+        inFlightHops.remove(currentIp);
         _repository.ingestTraceResult(result);
         _scanProgress = _scanProgress.copyWith(
           completedTargets: completed,
           currentTarget: currentIp,
         );
-        // Refresh enrichments
         _repository.enrichNodes(
           arpCache: _cachedArp,
           sharedDeviceService: _sharedDeviceService,
         );
-        notifyListeners();
+        _notify();
       },
     );
+
+    if (_disposed || token.isCancelled) return;
 
     // Final ARP and reverse DNS enrichment
     _cachedArp = await _arpService.readSystemArpCache();
@@ -366,17 +430,34 @@ class TopologyViewModel extends ChangeNotifier {
       sharedDeviceService: _sharedDeviceService,
     );
 
-    // Resolve reverse-DNS in background for all discovered IPs
-    for (final node in _repository.nodes.values) {
-      if (!node.isLocalHost && !node.isUnresponsive) {
-        _arpService.reverseDns(node.ip).then((host) {
-          if (host != null) {
-            _repository.updateNodeHostname(node.ip, host);
-            notifyListeners();
-          }
-        });
+    // Resolve reverse-DNS in background using a bounded worker pool (up to 8 concurrent lookups)
+    final nodesToResolve = _repository.nodes.values
+        .where((n) => !n.isLocalHost && !n.isUnresponsive && (n.hostname == null || n.hostname!.isEmpty))
+        .toList();
+
+    if (nodesToResolve.isNotEmpty && !token.isCancelled && !_disposed) {
+      var dnsIdx = 0;
+      Future<void> dnsWorker() async {
+        while (dnsIdx < nodesToResolve.length && !token.isCancelled && !_disposed) {
+          final node = nodesToResolve[dnsIdx++];
+          try {
+            final host = await _arpService.reverseDns(
+              node.ip,
+              timeout: const Duration(milliseconds: 1500),
+            );
+            if (host != null && !_disposed && !token.isCancelled) {
+              _repository.updateNodeHostname(node.ip, host);
+              _notifyThrottled();
+            }
+          } catch (_) {}
+        }
       }
+
+      final poolSize = math.min(8, nodesToResolve.length);
+      await Future.wait(List.generate(poolSize, (_) => dnsWorker()));
     }
+
+    if (_disposed || token.isCancelled) return;
 
     _scanProgress = ScanProgress(
       phase: 'Discovery Complete (${_repository.nodes.length} nodes, ${_repository.edges.length} edges)',
@@ -384,7 +465,7 @@ class TopologyViewModel extends ChangeNotifier {
       completedTargets: liveHosts.length,
       isScanning: false,
     );
-    notifyListeners();
+    _notify();
   }
 
   /// Syncs shared device metadata when `shared_devices.db` changes.
@@ -393,7 +474,7 @@ class TopologyViewModel extends ChangeNotifier {
       arpCache: _cachedArp,
       sharedDeviceService: _sharedDeviceService,
     );
-    notifyListeners();
+    _notify();
   }
 
   /// Updates or creates friendly device name and metadata in `shared_devices.db`.
@@ -433,7 +514,7 @@ class TopologyViewModel extends ChangeNotifier {
       macAddress: rawMac,
     );
 
-    notifyListeners();
+    _notify();
   }
 
   /// Loads realistic enterprise demo topology with rich multi-hop structure.
@@ -484,7 +565,7 @@ class TopologyViewModel extends ChangeNotifier {
       isScanning: false,
     );
     _statusBannerText = null;
-    notifyListeners();
+    _notify();
   }
 
   /// Exports current topology to JSON file.
@@ -509,6 +590,9 @@ class TopologyViewModel extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
+    _throttleTimer?.cancel();
+    _currentScanToken?.cancel();
     _dbSubscription?.cancel();
     _tracerouteService.cancel();
     _icmpService.cancel();
