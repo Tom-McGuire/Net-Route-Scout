@@ -45,11 +45,9 @@ class NetworkAdapterService {
     try {
       final gwRes = await Process.run('ip', ['route', 'show', 'default']);
       if (gwRes.exitCode == 0) {
-        final match = RegExp(r'default\s+via\s+(\d{1,3}(?:\.\d{1,3}){3})(?:\s+dev\s+([^\s]+))?').firstMatch(gwRes.stdout.toString());
-        if (match != null) {
-          defaultGw = match.group(1);
-          defaultDev = match.group(2);
-        }
+        final parsedRoute = parseLinuxDefaultRoute(gwRes.stdout.toString());
+        defaultGw = parsedRoute.gateway;
+        defaultDev = parsedRoute.device;
       }
     } catch (_) {}
 
@@ -77,13 +75,7 @@ class NetworkAdapterService {
         try {
           final addrRes = await Process.run('ip', ['-o', '-4', 'addr', 'show', 'dev', iface.name]);
           if (addrRes.exitCode == 0) {
-            final match = RegExp('inet\\s+${RegExp.escape(addr.address)}/(\\d{1,2})').firstMatch(addrRes.stdout.toString());
-            if (match != null) {
-              prefix = int.tryParse(match.group(1)!) ?? 24;
-            } else {
-              final anyMatch = RegExp(r'inet\s+\d{1,3}(?:\.\d{1,3}){3}/(\d{1,2})').firstMatch(addrRes.stdout.toString());
-              if (anyMatch != null) prefix = int.tryParse(anyMatch.group(1)!) ?? 24;
-            }
+            prefix = parseLinuxAddrPrefix(addrRes.stdout.toString(), addr.address);
           }
         } catch (_) {}
 
@@ -171,7 +163,7 @@ $out | ConvertTo-Json -Compress
     try {
       final res = await Process.run('ipconfig.exe', ['/all']);
       if (res.exitCode == 0) {
-        final parsed = _parseWindowsIpconfig(res.stdout.toString());
+        final parsed = parseWindowsIpconfig(res.stdout.toString());
         if (parsed.isNotEmpty) return parsed;
       }
     } catch (_) {}
@@ -179,7 +171,8 @@ $out | ConvertTo-Json -Compress
     return list;
   }
 
-  static List<NetworkAdapterInfo> _parseWindowsIpconfig(String output) {
+  /// Parses Windows `ipconfig /all` console output.
+  static List<NetworkAdapterInfo> parseWindowsIpconfig(String output) {
     final list = <NetworkAdapterInfo>[];
     String? currentName;
     String? currentMac;
@@ -193,7 +186,7 @@ $out | ConvertTo-Json -Compress
       final gw = currentGw;
       final mac = currentMac;
       if (name != null && ip != null && !ip.startsWith('127.') && !ip.startsWith('169.254.')) {
-        final prefix = _maskToPrefix(currentMask ?? '255.255.255.0');
+        final prefix = maskToPrefix(currentMask ?? '255.255.255.0');
         final cidr = NetworkAdapterInfo.calculateSubnetCidr(ip, prefix);
         final vendor = mac != null ? OuiLookup.lookupVendor(mac) : null;
 
@@ -215,9 +208,11 @@ $out | ConvertTo-Json -Compress
     final lines = output.split(RegExp(r'\r?\n'));
     for (final line in lines) {
       final trimmed = line.trim();
-      if (!line.startsWith(' ') && line.contains('adapter ')) {
+      final lower = line.toLowerCase();
+      if (!line.startsWith(' ') && (lower.contains('adapter') || lower.contains('adaptador') || lower.contains('carte')) && line.contains(':')) {
         flush();
-        currentName = line.split('adapter ').last.replaceAll(':', '').trim();
+        final match = RegExp(r'(?:adapter|adaptador|carte)\s+(.+)', caseSensitive: false).firstMatch(line);
+        currentName = match != null ? match.group(1)!.replaceAll(':', '').trim() : line.replaceAll(':', '').trim();
         currentMac = null;
         currentIp = null;
         currentMask = null;
@@ -245,7 +240,8 @@ $out | ConvertTo-Json -Compress
     return list;
   }
 
-  static int _maskToPrefix(String mask) {
+  /// Converts dotted-decimal subnet mask (e.g. 255.255.255.0) to CIDR prefix length (e.g. 24).
+  static int maskToPrefix(String mask) {
     try {
       final parts = mask.split('.').map(int.parse).toList();
       var count = 0;
@@ -262,6 +258,61 @@ $out | ConvertTo-Json -Compress
     }
   }
 
+  /// Extracts default gateway and interface device from Linux `ip route show default` output.
+  static ({String? gateway, String? device}) parseLinuxDefaultRoute(String output) {
+    final match = RegExp(r'default\s+via\s+(\d{1,3}(?:\.\d{1,3}){3})(?:\s+dev\s+([^\s]+))?').firstMatch(output);
+    if (match != null) {
+      return (gateway: match.group(1), device: match.group(2));
+    }
+    return (gateway: null, device: null);
+  }
+
+  /// Extracts CIDR prefix from Linux `ip -o -4 addr show` output for a specific IP.
+  static int parseLinuxAddrPrefix(String output, String ipAddress) {
+    final match = RegExp('inet\\s+${RegExp.escape(ipAddress)}/(\\d{1,2})').firstMatch(output);
+    if (match != null) {
+      return int.tryParse(match.group(1)!) ?? 24;
+    }
+    final anyMatch = RegExp(r'inet\s+\d{1,3}(?:\.\d{1,3}){3}/(\d{1,2})').firstMatch(output);
+    if (anyMatch != null) return int.tryParse(anyMatch.group(1)!) ?? 24;
+    return 24;
+  }
+
+  /// Extracts default gateway and interface device from macOS `route -n get default` output.
+  static ({String? gateway, String? device}) parseMacDefaultRoute(String output) {
+    String? defaultGw;
+    String? defaultDev;
+    final gwMatch = RegExp(r'gateway:\s*(\d{1,3}(?:\.\d{1,3}){3})').firstMatch(output);
+    if (gwMatch != null) defaultGw = gwMatch.group(1);
+    final devMatch = RegExp(r'interface:\s*([^\s]+)').firstMatch(output);
+    if (devMatch != null) defaultDev = devMatch.group(1);
+    return (gateway: defaultGw, device: defaultDev);
+  }
+
+  /// Extracts MAC address and subnet prefix from macOS `ifconfig <interface>` output.
+  static ({String? mac, int prefix}) parseMacIfconfig(String output, String ipAddress) {
+    String? mac;
+    int prefix = 24;
+    final match = RegExp(r'ether\s+([0-9a-fA-F:]{17})').firstMatch(output);
+    if (match != null) {
+      mac = NetworkAdapterInfo.normalizeMac(match.group(1)!);
+    }
+    final maskMatch = RegExp('inet\\s+${RegExp.escape(ipAddress)}\\s+netmask\\s+0x([0-9a-fA-F]{8})').firstMatch(output);
+    if (maskMatch != null) {
+      final hex = int.tryParse(maskMatch.group(1)!, radix: 16);
+      if (hex != null) {
+        var count = 0;
+        var n = hex;
+        while (n > 0) {
+          if ((n & 1) == 1) count++;
+          n >>= 1;
+        }
+        if (count > 0 && count <= 32) prefix = count;
+      }
+    }
+    return (mac: mac, prefix: prefix);
+  }
+
   /// macOS discovery
   static Future<List<NetworkAdapterInfo>> _discoverMacAdapters() async {
     final list = <NetworkAdapterInfo>[];
@@ -271,11 +322,9 @@ $out | ConvertTo-Json -Compress
     try {
       final gwRes = await Process.run('route', ['-n', 'get', 'default']);
       if (gwRes.exitCode == 0) {
-        final out = gwRes.stdout.toString();
-        final gwMatch = RegExp(r'gateway:\s*(\d{1,3}(?:\.\d{1,3}){3})').firstMatch(out);
-        if (gwMatch != null) defaultGw = gwMatch.group(1);
-        final devMatch = RegExp(r'interface:\s*([^\s]+)').firstMatch(out);
-        if (devMatch != null) defaultDev = devMatch.group(1);
+        final parsed = parseMacDefaultRoute(gwRes.stdout.toString());
+        defaultGw = parsed.gateway;
+        defaultDev = parsed.device;
       }
     } catch (_) {}
 
@@ -293,24 +342,9 @@ $out | ConvertTo-Json -Compress
         try {
           final res = await Process.run('ifconfig', [iface.name]);
           if (res.exitCode == 0) {
-            final out = res.stdout.toString();
-            final match = RegExp(r'ether\s+([0-9a-fA-F:]{17})').firstMatch(out);
-            if (match != null) {
-              mac = NetworkAdapterInfo.normalizeMac(match.group(1)!);
-            }
-            final maskMatch = RegExp('inet\\s+${RegExp.escape(addr.address)}\\s+netmask\\s+0x([0-9a-fA-F]{8})').firstMatch(out);
-            if (maskMatch != null) {
-              final hex = int.tryParse(maskMatch.group(1)!, radix: 16);
-              if (hex != null) {
-                var count = 0;
-                var n = hex;
-                while (n > 0) {
-                  if ((n & 1) == 1) count++;
-                  n >>= 1;
-                }
-                if (count > 0 && count <= 32) prefix = count;
-              }
-            }
+            final parsed = parseMacIfconfig(res.stdout.toString(), addr.address);
+            mac = parsed.mac;
+            prefix = parsed.prefix;
           }
         } catch (_) {}
 

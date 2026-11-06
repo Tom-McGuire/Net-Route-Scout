@@ -302,19 +302,23 @@ class _FilterToolbarState extends State<FilterToolbar> {
               height: 34,
               child: TextField(
                 controller: _searchController,
-                onChanged: vm.setSearchQuery,
+                onChanged: (text) {
+                  setState(() {});
+                  vm.setSearchQuery(text);
+                },
                 style: const TextStyle(fontSize: 11, color: Colors.white),
                 decoration: InputDecoration(
                   hintText: 'Filter nodes / devices...',
                   hintStyle: const TextStyle(fontSize: 11, color: Colors.white38),
                   prefixIcon: const Icon(Icons.search, size: 15, color: Colors.white54),
                   suffixIcon: _searchController.text.isNotEmpty
-                      ? IconButton(
-                          icon: const Icon(Icons.clear, size: 13),
-                          onPressed: () {
+                      ? InkWell(
+                          onTap: () {
                             _searchController.clear();
+                            setState(() {});
                             vm.setSearchQuery('');
                           },
+                          child: const Icon(Icons.clear, size: 14),
                         )
                       : null,
                 ),

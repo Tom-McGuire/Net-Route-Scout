@@ -102,28 +102,29 @@ class _EditDeviceDialogState extends State<EditDeviceDialog> {
                     child: const Icon(Icons.edit_note, color: AppTheme.primaryAccent, size: 20),
                   ),
                   const SizedBox(width: 10),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Edit Shared Device Identity',
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Edit Shared Device Identity',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
                         ),
-                      ),
-                      Text(
-                        'IP: ${widget.node.ip} (Hop ${widget.node.hopDepth})',
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontFamily: 'monospace',
-                          color: Colors.white54,
+                        Text(
+                          'IP: ${widget.node.ip} (Hop ${widget.node.hopDepth})',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontFamily: 'monospace',
+                            color: Colors.white54,
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                  const Spacer(),
                   IconButton(
                     onPressed: () => Navigator.of(context).pop(),
                     icon: const Icon(Icons.close, size: 18),
@@ -226,8 +227,10 @@ class _EditDeviceDialogState extends State<EditDeviceDialog> {
               const SizedBox(height: 20),
 
               // Actions
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
+              Wrap(
+                alignment: WrapAlignment.end,
+                spacing: 10,
+                runSpacing: 8,
                 children: [
                   OutlinedButton(
                     onPressed: () => Navigator.of(context).pop(),
@@ -236,11 +239,11 @@ class _EditDeviceDialogState extends State<EditDeviceDialog> {
                     ),
                     child: const Text('Cancel'),
                   ),
-                  const SizedBox(width: 10),
                   FilledButton.icon(
                     onPressed: () {
                       final rawMac = _macController.text.trim();
                       if (rawMac.isEmpty) {
+                        ScaffoldMessenger.of(context).hideCurrentSnackBar();
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(content: Text('MAC address is required to store in Shared Device DB')),
                         );
@@ -248,6 +251,7 @@ class _EditDeviceDialogState extends State<EditDeviceDialog> {
                       }
 
                       if (!SharedDevice.isValidMac(rawMac)) {
+                        ScaffoldMessenger.of(context).hideCurrentSnackBar();
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(content: Text('Invalid MAC address format. Expected 6 hex pairs, e.g. 00:1A:2B:3C:4D:5E')),
                         );

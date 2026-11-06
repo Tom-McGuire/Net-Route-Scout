@@ -245,14 +245,19 @@ class _RouteTableViewState extends State<RouteTableView> {
           });
         },
         child: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.bold,
-                color: isCurrent ? AppTheme.primaryAccent : Colors.white70,
-                letterSpacing: 0.5,
+            Flexible(
+              child: Text(
+                label,
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1,
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  color: isCurrent ? AppTheme.primaryAccent : Colors.white70,
+                  letterSpacing: 0.5,
+                ),
               ),
             ),
             if (isCurrent) ...[
