@@ -459,13 +459,13 @@ class TopologyViewModel extends ChangeNotifier {
               Navigator.of(ctx).pop();
               try {
                 final result = await FilePicker.pickFiles(
-                  dialogTitle: 'Select ARP Scout Executable',
-                  type: FileType.custom,
+                  dialogTitle: 'Select ARP Scout Executable or Application',
+                  type: Platform.isWindows ? FileType.custom : FileType.any,
                   allowedExtensions: Platform.isWindows ? ['exe'] : null,
                 );
                 if (result.isNotEmpty) {
                   final pickedPath = result.first.path;
-                  if (pickedPath != null && await File(pickedPath).exists()) {
+                  if (pickedPath != null && (await File(pickedPath).exists() || await Directory(pickedPath).exists())) {
                     await InterAppLauncher.saveCustomArpScoutPath(pickedPath);
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(

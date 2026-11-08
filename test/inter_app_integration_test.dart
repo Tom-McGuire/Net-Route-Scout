@@ -295,6 +295,19 @@ void main() {
         tempDir.deleteSync(recursive: true);
       }
     });
+
+    test('Resolves macOS .app bundle directory when candidate path override points to .app', () async {
+      final tempDir = Directory.systemTemp.createTempSync('scout_mac_');
+      final mockAppBundle = Directory('${tempDir.path}/ARP & Subnet Scout.app')..createSync();
+      try {
+        final resolved = await InterAppLauncher.resolveArpScoutExecutable(
+          candidatePathsOverride: [mockAppBundle.path],
+        );
+        expect(resolved, mockAppBundle.path);
+      } finally {
+        tempDir.deleteSync(recursive: true);
+      }
+    });
   });
 
   group('TopologyViewModel Incoming Command Handling Tests', () {

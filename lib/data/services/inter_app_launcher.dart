@@ -58,12 +58,34 @@ class InterAppLauncher {
       if (autoStart) '--auto-start',
     ];
 
+    // On macOS, if the resolved target is an application bundle (.app), launch via `open -a`
+    if (Platform.isMacOS && exePath.endsWith('.app')) {
+      final openArgs = [
+        '-a',
+        exePath,
+        '--args',
+        ...args,
+      ];
+      await Process.start('open', openArgs, mode: ProcessStartMode.detached);
+      return;
+    }
+
+    // Windows, Linux, or raw executable binary
     await Process.start(
       exePath,
       args,
       mode: ProcessStartMode.detached,
       workingDirectory: File(exePath).parent.path,
     );
+  }
+
+  /// Helper to check if a file or macOS app bundle directory exists.
+  static Future<bool> _isPathValid(String path) async {
+    if (path.isEmpty) return false;
+    if (path.endsWith('.app')) {
+      return await Directory(path).exists();
+    }
+    return await File(path).exists();
   }
 
   /// Returns the suite configuration file used to store custom user preferences.
@@ -92,7 +114,7 @@ class InterAppLauncher {
         final decoded = jsonDecode(content);
         if (decoded is Map && decoded['arpScoutPath'] is String) {
           final p = decoded['arpScoutPath'] as String;
-          if (await File(p).exists()) {
+          if (await _isPathValid(p)) {
             return p;
           }
         }
@@ -121,37 +143,49 @@ class InterAppLauncher {
   }
 
   /// Resolves the file path for the ARP Scout executable based on development sibling
-  /// paths, production suite install paths, Windows Registry, or system PATH.
+  /// paths, production suite install paths, desktop entries, Spotlight, Registry, or system PATH.
   static Future<String?> resolveArpScoutExecutable({
     List<String>? candidatePathsOverride,
   }) async {
     // 0. Explicit candidate overrides (e.g. testing)
     if (candidatePathsOverride != null) {
       for (final p in candidatePathsOverride) {
-        if (p.isNotEmpty && await File(p).exists()) return p;
+        if (await _isPathValid(p)) return p;
       }
       return null;
     }
 
     // 1. Saved custom user configuration
     final customPath = await getCustomArpScoutPath();
-    if (customPath != null && await File(customPath).exists()) {
+    if (customPath != null && await _isPathValid(customPath)) {
       return customPath;
     }
 
     // 2. Dynamic sibling & ancestor scanning relative to running executable and working dir
     final siblingPaths = _getSiblingCandidatePaths();
     for (final p in siblingPaths) {
-      if (await File(p).exists()) return p;
+      if (await _isPathValid(p)) return p;
     }
 
     // 3. Platform-specific candidate installation directories
     final systemPaths = _getSystemCandidatePaths();
     for (final p in systemPaths) {
-      if (p.isNotEmpty && await File(p).exists()) return p;
+      if (await _isPathValid(p)) return p;
     }
 
-    // 4. Windows Registry query (if running on Windows)
+    // 4. Linux desktop launcher (.desktop) entries
+    if (Platform.isLinux) {
+      final desktopPath = await _queryLinuxDesktopFile();
+      if (desktopPath != null) return desktopPath;
+    }
+
+    // 5. macOS Spotlight LaunchServices lookup
+    if (Platform.isMacOS) {
+      final macPath = await _queryMacOsSpotlight();
+      if (macPath != null) return macPath;
+    }
+
+    // 6. Windows Registry query
     if (Platform.isWindows) {
       final regKeys = const [
         r'HKCU\Software\Microsoft\Windows\CurrentVersion\App Paths\arp_scout.exe',
@@ -167,19 +201,19 @@ class InterAppLauncher {
       }
     }
 
-    // 5. System PATH check
+    // 7. System PATH check
     try {
       final whichCmd = Platform.isWindows ? 'where' : 'which';
       final names = Platform.isWindows
           ? const ['arp_scout.exe', 'arp-scout.exe', 'arp_scout', 'arp-scout']
-          : const ['arp-scout', 'arp_scout'];
+          : const ['arp_scout', 'arp-scout'];
       for (final name in names) {
         final res = await Process.run(whichCmd, [name]);
         if (res.exitCode == 0) {
           final lines = (res.stdout as String).trim().split('\n');
           for (final line in lines) {
             final trimmed = line.trim();
-            if (trimmed.isNotEmpty && await File(trimmed).exists()) {
+            if (await _isPathValid(trimmed)) {
               return trimmed;
             }
           }
@@ -193,17 +227,42 @@ class InterAppLauncher {
   static List<String> _getSiblingCandidatePaths() {
     final results = <String>[];
     final sep = Platform.pathSeparator;
-    final exeNames = Platform.isWindows
-        ? const ['arp_scout.exe', 'arp-scout.exe', 'ARP Scout.exe', 'ARP-Scout.exe']
-        : const ['arp_scout', 'arp-scout'];
+
+    final exeNames = [
+      if (Platform.isWindows) ...const [
+        'arp_scout.exe',
+        'arp-scout.exe',
+        'ARP Scout.exe',
+        'ARP-Scout.exe',
+      ],
+      if (Platform.isLinux) ...const [
+        'arp_scout',
+        'arp-scout',
+        'ARP-Scout',
+        'ARP_Scout',
+      ],
+      if (Platform.isMacOS) ...const [
+        'ARP & Subnet Scout.app',
+        'ARP Scout.app',
+        'ARP-Scout.app',
+        'arp_scout.app',
+        'Contents/MacOS/ARP & Subnet Scout',
+        'Contents/MacOS/ARP Scout',
+        'Contents/MacOS/arp_scout',
+      ],
+    ];
 
     final siblingFolders = const [
       'ARP-Scout',
       'ARP Scout',
+      'ARP & Subnet Scout',
       'ARP-Scout_windows_x64',
+      'ARP-Scout_linux_x64',
+      'ARP-Scout_macos',
       'arp_scout',
       'arp-scout',
       'arp_scout_windows_x64',
+      'arp_scout_linux_x64',
     ];
 
     // Search from Platform.resolvedExecutable parent and walk up ancestor directories
@@ -222,10 +281,13 @@ class InterAppLauncher {
           final dirPath = '${current.path}$sep$folder';
           for (final name in exeNames) {
             results.add('$dirPath$sep$name');
+            // Check build directories within sibling project
             results.add('$dirPath${sep}build${sep}windows${sep}x64${sep}runner${sep}Release$sep$name');
             results.add('$dirPath${sep}build${sep}windows${sep}x64${sep}runner${sep}Debug$sep$name');
             results.add('$dirPath${sep}build${sep}linux${sep}x64${sep}release${sep}bundle$sep$name');
             results.add('$dirPath${sep}build${sep}linux${sep}x64${sep}debug${sep}bundle$sep$name');
+            results.add('$dirPath${sep}build${sep}macos${sep}Build${sep}Products${sep}Release$sep$name');
+            results.add('$dirPath${sep}build${sep}macos${sep}Build${sep}Products${sep}Debug$sep$name');
           }
         }
         if (current.parent.path == current.path) break;
@@ -245,6 +307,8 @@ class InterAppLauncher {
             results.add('$dirPath${sep}build${sep}windows${sep}x64${sep}runner${sep}Debug$sep$name');
             results.add('$dirPath${sep}build${sep}linux${sep}x64${sep}release${sep}bundle$sep$name');
             results.add('$dirPath${sep}build${sep}linux${sep}x64${sep}debug${sep}bundle$sep$name');
+            results.add('$dirPath${sep}build${sep}macos${sep}Build${sep}Products${sep}Release$sep$name');
+            results.add('$dirPath${sep}build${sep}macos${sep}Build${sep}Products${sep}Debug$sep$name');
           }
         }
         if (current.parent.path == current.path) break;
@@ -262,15 +326,27 @@ class InterAppLauncher {
       candidatePaths.addAll(const [
         '../ARP-Scout/build/linux/x64/release/bundle/arp_scout',
         '../ARP-Scout/build/linux/x64/debug/bundle/arp_scout',
+        '/usr/local/bin/arp_scout',
         '/usr/local/bin/arp-scout',
+        '/usr/bin/arp_scout',
         '/usr/bin/arp-scout',
+        '/opt/NetworkSuite/arp_scout',
         '/opt/NetworkSuite/arp-scout',
+        '/opt/NetworkSuite/bin/arp_scout',
+        '/opt/NetworkSuite/bin/arp-scout',
         '/opt/ARP-Scout/arp_scout',
+        '/opt/arp_scout/arp_scout',
       ]);
       final home = Platform.environment['HOME'] ?? '';
       if (home.isNotEmpty) {
-        candidatePaths.add('$home/.local/bin/arp-scout');
         candidatePaths.add('$home/.local/bin/arp_scout');
+        candidatePaths.add('$home/.local/bin/arp-scout');
+        candidatePaths.add('$home/bin/arp_scout');
+        candidatePaths.add('$home/bin/arp-scout');
+        candidatePaths.add('$home/Downloads/ARP-Scout/arp_scout');
+        candidatePaths.add('$home/Downloads/ARP-Scout_linux_x64/arp_scout');
+        candidatePaths.add('$home/Downloads/arp_scout/arp_scout');
+        candidatePaths.add('$home/Desktop/ARP-Scout/arp_scout');
       }
     }
 
@@ -329,16 +405,90 @@ class InterAppLauncher {
 
     if (Platform.isMacOS) {
       candidatePaths.addAll(const [
-        '../ARP-Scout/build/macos/Build/Products/Release/ARP Scout.app/Contents/MacOS/arp_scout',
-        '/Applications/ARP Scout.app/Contents/MacOS/arp_scout',
+        '../ARP-Scout/build/macos/Build/Products/Release/ARP & Subnet Scout.app',
+        '../ARP-Scout/build/macos/Build/Products/Release/ARP Scout.app',
+        '../ARP-Scout/build/macos/Build/Products/Debug/ARP & Subnet Scout.app',
+        '../ARP-Scout/build/macos/Build/Products/Debug/ARP Scout.app',
+        '/Applications/ARP & Subnet Scout.app',
+        '/Applications/ARP Scout.app',
+        '/Applications/ARP-Scout.app',
+        '/Applications/arp_scout.app',
+        '/Applications/NetworkSuite/ARP & Subnet Scout.app',
+        '/Applications/NetworkSuite/ARP Scout.app',
       ]);
       final home = Platform.environment['HOME'] ?? '';
       if (home.isNotEmpty) {
-        candidatePaths.add('$home/Applications/ARP Scout.app/Contents/MacOS/arp_scout');
+        candidatePaths.add('$home/Applications/ARP & Subnet Scout.app');
+        candidatePaths.add('$home/Applications/ARP Scout.app');
+        candidatePaths.add('$home/Applications/arp_scout.app');
+        candidatePaths.add('$home/Downloads/ARP-Scout/ARP & Subnet Scout.app');
+        candidatePaths.add('$home/Downloads/ARP-Scout_macos/ARP & Subnet Scout.app');
+        candidatePaths.add('$home/Downloads/ARP-Scout_macos/ARP Scout.app');
       }
     }
 
     return candidatePaths;
+  }
+
+  static Future<String?> _queryLinuxDesktopFile() async {
+    try {
+      final home = Platform.environment['HOME'] ?? '';
+      final appDirs = [
+        '/usr/share/applications',
+        '/usr/local/share/applications',
+        if (home.isNotEmpty) '$home/.local/share/applications',
+      ];
+      final desktopNames = [
+        'arp-scout.desktop',
+        'arp_scout.desktop',
+        'io.github.tommcguire.arpScout.desktop',
+      ];
+      for (final dir in appDirs) {
+        for (final name in desktopNames) {
+          final file = File('$dir/$name');
+          if (await file.exists()) {
+            final lines = await file.readAsLines();
+            for (final line in lines) {
+              if (line.startsWith('Exec=')) {
+                var execPath = line.substring(5).trim();
+                execPath = execPath.split(RegExp(r'\s+%[a-zA-Z]')).first.trim();
+                if (execPath.startsWith('"') && execPath.endsWith('"')) {
+                  execPath = execPath.substring(1, execPath.length - 1);
+                }
+                if (execPath.isNotEmpty && await _isPathValid(execPath)) {
+                  return execPath;
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  static Future<String?> _queryMacOsSpotlight() async {
+    try {
+      final queries = [
+        "kMDItemCFBundleIdentifier == 'io.github.tommcguire.arpScout'",
+        "kMDItemFSName == 'ARP & Subnet Scout.app'",
+        "kMDItemFSName == 'ARP Scout.app'",
+        "kMDItemFSName == 'arp_scout.app'",
+      ];
+      for (final query in queries) {
+        final res = await Process.run('mdfind', [query]);
+        if (res.exitCode == 0) {
+          final lines = (res.stdout as String).trim().split('\n');
+          for (final line in lines) {
+            final trimmed = line.trim();
+            if (await _isPathValid(trimmed)) {
+              return trimmed;
+            }
+          }
+        }
+      }
+    } catch (_) {}
+    return null;
   }
 
   static Future<String?> _queryWindowsRegistry(String command) async {
@@ -356,7 +506,7 @@ class InterAppLauncher {
                 p = p.substring(1, closeQuote);
               }
             }
-            if (p.isNotEmpty && await File(p).exists()) {
+            if (await _isPathValid(p)) {
               return p;
             }
           }
