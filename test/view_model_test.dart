@@ -209,5 +209,85 @@ void main() {
       expect(vm.isScanning, isFalse);
       expect(vm.scanProgress.phase, contains('Discovery Complete'));
     });
+
+    test('Device quick-filter pills and auto-detected toggle', () {
+      vm.loadDemoTopology();
+
+      // Default showAutoDetected is false, so autoDetectedUnlabeledNodes must be empty
+      expect(vm.showAutoDetected, isFalse);
+      expect(vm.autoDetectedUnlabeledNodes, isEmpty);
+
+      // Toggle showAutoDetected to true
+      vm.setShowAutoDetected(true);
+      expect(vm.showAutoDetected, isTrue);
+
+      // Select a device pill
+      final targetNode = vm.nodes['10.0.1.45']!;
+      final key = (targetNode.macAddress != null && targetNode.macAddress!.isNotEmpty)
+          ? targetNode.macAddress!
+          : targetNode.ip;
+
+      vm.toggleDevicePill(key);
+      expect(vm.selectedDeviceKeys.contains(key), isTrue);
+
+      // Filtering with selected device pill limits filteredNodes
+      expect(vm.filteredNodes.any((n) => n.id == targetNode.id), isTrue);
+
+      // Clear device filters
+      vm.clearDeviceFilters();
+      expect(vm.selectedDeviceKeys, isEmpty);
+    });
+
+    test('Multi-select common path calculation', () {
+      vm.loadDemoTopology();
+
+      // Select two target nodes from demo data: 10.0.1.45 (Accounting) and 10.0.1.80 (HR PC)
+      final n1 = vm.nodes['10.0.1.45']!;
+      final n2 = vm.nodes['10.0.1.80']!;
+
+      final k1 = (n1.macAddress != null && n1.macAddress!.isNotEmpty) ? n1.macAddress! : n1.ip;
+      final k2 = (n2.macAddress != null && n2.macAddress!.isNotEmpty) ? n2.macAddress! : n2.ip;
+
+      vm.toggleDevicePill(k1);
+      vm.toggleDevicePill(k2);
+
+      expect(vm.selectedDeviceKeys.length, 2);
+      expect(vm.activePathNodeIds.contains('10.0.1.45'), isTrue);
+      expect(vm.activePathNodeIds.contains('10.0.1.80'), isTrue);
+
+      // Common upstream path nodes (shared intermediate hops: 192.168.1.1 and 10.0.1.1)
+      expect(vm.commonPathNodeIds.isNotEmpty, isTrue);
+      expect(vm.commonPathEdgeIds.isNotEmpty, isTrue);
+      expect(vm.commonPathNodeIds.contains('192.168.1.1'), isTrue);
+      expect(vm.commonPathNodeIds.contains('10.0.1.1'), isTrue);
+    });
+
+    test('Dedicated IP and MAC filters and resetFilters', () {
+      vm.loadDemoTopology();
+
+      vm.setIpFilter('10.0.1.');
+      expect(vm.filteredNodes.every((n) => n.ip.contains('10.0.1.')), isTrue);
+
+      vm.setIpFilter('');
+      vm.setMacFilter('00:50:56');
+      expect(vm.filteredNodes.every((n) => (n.macAddress ?? '').toLowerCase().contains('00:50:56')), isTrue);
+
+      vm.resetFilters();
+      expect(vm.ipFilter, isEmpty);
+      expect(vm.macFilter, isEmpty);
+      expect(vm.searchQuery, isEmpty);
+      expect(vm.selectedDeviceKeys, isEmpty);
+    });
+
+    test('toggleDeviceVisibility hides device from visibleSharedDevices', () {
+      const mac = 'AA:BB:CC:DD:EE:FF';
+      expect(vm.hiddenDeviceMacs.contains(mac), isFalse);
+
+      vm.toggleDeviceVisibility(mac);
+      expect(vm.hiddenDeviceMacs.contains(mac), isTrue);
+
+      vm.toggleDeviceVisibility(mac);
+      expect(vm.hiddenDeviceMacs.contains(mac), isFalse);
+    });
   });
 }

@@ -172,7 +172,8 @@ class _TopologyCanvasState extends State<TopologyCanvas> {
     final selectedNodeId = vm.selectedNodeId;
     final activeNodeIds = vm.activePathNodeIds;
     final activeEdgeIds = vm.activePathEdgeIds;
-    final hasSelection = selectedNodeId != null;
+    final hasDeviceFilter = vm.selectedDeviceKeys.isNotEmpty;
+    final hasSelection = selectedNodeId != null || hasDeviceFilter;
 
     if (nodes.isEmpty) {
       return _buildEmptyState(context, vm);
@@ -248,6 +249,7 @@ class _TopologyCanvasState extends State<TopologyCanvas> {
                     edges: edges.values.toList(),
                     nodePositions: nodePositions,
                     activeEdgeIds: activeEdgeIds,
+                    commonEdgeIds: vm.commonPathEdgeIds,
                     hasSelection: hasSelection,
                     cardWidth: cardWidth,
                     cardHeight: cardHeight,
@@ -345,10 +347,15 @@ class _TopologyCanvasState extends State<TopologyCanvas> {
               decoration: BoxDecoration(
                 color: AppTheme.surfaceContainer.withValues(alpha: 0.95),
                 borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: AppTheme.activeHighlight.withValues(alpha: 0.6)),
+                border: Border.all(
+                  color: hasDeviceFilter
+                      ? const Color(0xFFF59E0B).withValues(alpha: 0.7)
+                      : AppTheme.activeHighlight.withValues(alpha: 0.6),
+                ),
                 boxShadow: [
                   BoxShadow(
-                    color: AppTheme.activeHighlight.withValues(alpha: 0.2),
+                    color: (hasDeviceFilter ? const Color(0xFFF59E0B) : AppTheme.activeHighlight)
+                        .withValues(alpha: 0.2),
                     blurRadius: 8,
                   ),
                 ],
@@ -359,14 +366,18 @@ class _TopologyCanvasState extends State<TopologyCanvas> {
                   Container(
                     width: 8,
                     height: 8,
-                    decoration: const BoxDecoration(
-                      color: AppTheme.activeHighlight,
+                    decoration: BoxDecoration(
+                      color: hasDeviceFilter ? const Color(0xFFF59E0B) : AppTheme.activeHighlight,
                       shape: BoxShape.circle,
                     ),
                   ),
                   const SizedBox(width: 8),
                   Text(
-                    'Active Path Highlight: ${vm.selectedNode?.displayName ?? ""}',
+                    hasDeviceFilter
+                        ? (vm.selectedDeviceKeys.length >= 2
+                            ? 'Multi-Device Filter (${vm.selectedDeviceKeys.length} devices) • Common Path: ${vm.commonPathNodeIds.length} hops'
+                            : 'Device Path Filter (${vm.selectedDeviceKeys.length} selected)')
+                        : 'Active Path Highlight: ${vm.selectedNode?.displayName ?? ""}',
                     style: const TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.bold,
@@ -375,7 +386,7 @@ class _TopologyCanvasState extends State<TopologyCanvas> {
                   ),
                   const SizedBox(width: 8),
                   InkWell(
-                    onTap: vm.clearSelection,
+                    onTap: hasDeviceFilter ? vm.clearDeviceFilters : vm.clearSelection,
                     child: const Icon(Icons.close, size: 14, color: Colors.white54),
                   ),
                 ],
@@ -466,6 +477,7 @@ class _TopologyEdgesPainter extends CustomPainter {
   final List<NetworkEdge> edges;
   final Map<String, Offset> nodePositions;
   final Set<String> activeEdgeIds;
+  final Set<String> commonEdgeIds;
   final bool hasSelection;
   final double cardWidth;
   final double cardHeight;
@@ -474,6 +486,7 @@ class _TopologyEdgesPainter extends CustomPainter {
     required this.edges,
     required this.nodePositions,
     required this.activeEdgeIds,
+    this.commonEdgeIds = const {},
     required this.hasSelection,
     required this.cardWidth,
     required this.cardHeight,
@@ -491,8 +504,9 @@ class _TopologyEdgesPainter extends CustomPainter {
       // Exact center of left edge of target card
       final end = Offset(endPos.dx, endPos.dy + (cardHeight / 2));
 
+      final isCommon = commonEdgeIds.contains(edge.edgeId);
       final isActive = activeEdgeIds.contains(edge.edgeId);
-      final isDimmed = hasSelection && !isActive;
+      final isDimmed = hasSelection && !isActive && !isCommon;
 
       final dx = end.dx - start.dx;
       // Tangents are strictly horizontal at start and end points for smooth edge-to-edge alignment
@@ -514,7 +528,29 @@ class _TopologyEdgesPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeCap = StrokeCap.round;
 
-      if (isActive) {
+      if (isCommon) {
+        // Glowing prominent common network path edge (Amber)
+        const amberColor = Color(0xFFF59E0B);
+        paint
+          ..color = amberColor
+          ..strokeWidth = 3.4;
+
+        final glowPaint = Paint()
+          ..style = PaintingStyle.stroke
+          ..color = amberColor.withValues(alpha: 0.5)
+          ..strokeWidth = 8.0
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5.0);
+
+        canvas.drawPath(path, glowPaint);
+        canvas.drawPath(path, paint);
+
+        final dotPaint = Paint()
+          ..color = amberColor
+          ..style = PaintingStyle.fill;
+        canvas.drawCircle(start, 3.0, dotPaint);
+
+        _drawHorizontalArrowhead(canvas, end, amberColor, 9.0);
+      } else if (isActive) {
         // Glowing active edge
         paint
           ..color = AppTheme.activeHighlight

@@ -314,6 +314,25 @@ class TopologyRepository {
     return activeNodes;
   }
 
+  /// Returns all upstream node IDs reaching back to local host for a given node.
+  Set<String> getUpstreamNodeIds(String nodeId) {
+    final collected = <String>{};
+    _collectUpstreamNodes(nodeId, collected);
+    return collected;
+  }
+
+  /// Returns all downstream target node IDs traversed through a given node.
+  Set<String> getDownstreamNodeIds(String nodeId) {
+    final collected = <String>{};
+    final node = _nodes[nodeId];
+    if (node != null) {
+      for (final targetIp in node.associatedTargets) {
+        collected.add(targetIp);
+      }
+    }
+    return collected;
+  }
+
   void _collectUpstreamNodes(String currentId, Set<String> collected) {
     if (currentId == _localHostIp) return;
     for (final edge in _edges.values) {

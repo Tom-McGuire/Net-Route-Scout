@@ -225,13 +225,88 @@ void main() {
       expect(searchField, findsOneWidget);
 
       await tester.enterText(searchField, '192.168.1.1');
-      await tester.pumpAndSettle();
+      await tester.pumpAndSettle(const Duration(milliseconds: 250));
       expect(vm.searchQuery, '192.168.1.1');
 
       // Tap clear icon
       await tester.tap(find.byIcon(Icons.clear));
       await tester.pumpAndSettle();
       expect(vm.searchQuery, '');
+    });
+
+    testWidgets('Auto-detected toggle switch updates ViewModel showAutoDetected', (tester) async {
+      tester.view.physicalSize = const Size(1600, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() => tester.view.resetPhysicalSize());
+
+      final vm = TopologyViewModel(repository: TopologyRepository(), autoInit: false);
+      expect(vm.showAutoDetected, isFalse);
+
+      await tester.pumpWidget(createTestApp(const FilterToolbar(), vm));
+      await tester.pumpAndSettle();
+
+      final switchFinder = find.byType(Switch);
+      expect(switchFinder, findsOneWidget);
+
+      await tester.tap(switchFinder);
+      await tester.pumpAndSettle();
+      expect(vm.showAutoDetected, isTrue);
+
+      await tester.tap(switchFinder);
+      await tester.pumpAndSettle();
+      expect(vm.showAutoDetected, isFalse);
+    });
+
+    testWidgets('Dedicated IP and MAC filter inputs update ViewModel', (tester) async {
+      tester.view.physicalSize = const Size(1600, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() => tester.view.resetPhysicalSize());
+
+      final vm = TopologyViewModel(repository: TopologyRepository(), autoInit: false);
+
+      await tester.pumpWidget(createTestApp(const FilterToolbar(), vm));
+      await tester.pumpAndSettle();
+
+      final ipField = find.byWidgetPredicate(
+        (widget) => widget is TextField && (widget.decoration?.hintText?.contains('Search IP') ?? false),
+      );
+      expect(ipField, findsOneWidget);
+      await tester.enterText(ipField, '10.0.1.45');
+      await tester.pumpAndSettle(const Duration(milliseconds: 250));
+      expect(vm.ipFilter, '10.0.1.45');
+
+      final macField = find.byWidgetPredicate(
+        (widget) => widget is TextField && (widget.decoration?.hintText?.contains('Search MAC') ?? false),
+      );
+      expect(macField, findsOneWidget);
+      await tester.enterText(macField, '00:50:56');
+      await tester.pumpAndSettle(const Duration(milliseconds: 250));
+      expect(vm.macFilter, '00:50:56');
+    });
+
+    testWidgets('Device pills row renders and allows multi-selection', (tester) async {
+      tester.view.physicalSize = const Size(1600, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() => tester.view.resetPhysicalSize());
+
+      final vm = TopologyViewModel(repository: TopologyRepository(), autoInit: false);
+      vm.loadDemoTopology();
+      vm.setShowAutoDetected(true);
+
+      await tester.pumpWidget(createTestApp(const FilterToolbar(), vm));
+      await tester.pumpAndSettle();
+
+      expect(find.text('DEVICES:'), findsOneWidget);
+      expect(find.text('Manage'), findsOneWidget);
+
+      // Verify device pills exist
+      final pillFinder = find.byType(FilterChip);
+      expect(pillFinder, findsWidgets);
+
+      // Tap first pill
+      await tester.tap(pillFinder.first);
+      await tester.pumpAndSettle();
+      expect(vm.selectedDeviceKeys.length, 1);
     });
   });
 }

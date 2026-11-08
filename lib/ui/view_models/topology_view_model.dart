@@ -12,6 +12,7 @@ import '../../data/services/demo_data_generator.dart';
 import '../../data/services/export_service.dart';
 import '../../data/services/icmp_service.dart';
 import '../../data/services/network_adapter_service.dart';
+import '../../data/services/route_tracer_preferences_service.dart';
 import '../../data/services/shared_device_service.dart';
 import '../../data/services/traceroute_service.dart';
 import '../../data/services/inter_app_launcher.dart';
@@ -53,9 +54,16 @@ class TopologyViewModel extends ChangeNotifier {
   ScanProgress _scanProgress = const ScanProgress();
   TopologyViewMode _viewMode = TopologyViewMode.graph;
   String _searchQuery = '';
+  String _ipFilter = '';
+  String _macFilter = '';
   String? _statusBannerText;
   bool _isSharedDbConnected = false;
   Map<String, ArpDeviceEntry> _cachedArp = {};
+
+  // Device Filter & Library State
+  bool _showAutoDetected = false;
+  Set<String> _hiddenDeviceMacs = {};
+  Set<String> _selectedDeviceKeys = {};
 
   // Getters
   List<NetworkAdapterInfo> get adapters => List.unmodifiable(_adapters);
@@ -73,12 +81,138 @@ class TopologyViewModel extends ChangeNotifier {
   ScanProgress get scanProgress => _scanProgress;
   TopologyViewMode get viewMode => _viewMode;
   String get searchQuery => _searchQuery;
+  String get ipFilter => _ipFilter;
+  String get macFilter => _macFilter;
   String? get statusBannerText => _statusBannerText;
   bool get isSharedDbConnected => _isSharedDbConnected;
   bool get isScanning => _scanProgress.isScanning;
+  bool get showAutoDetected => _showAutoDetected;
+  Set<String> get hiddenDeviceMacs => Set.unmodifiable(_hiddenDeviceMacs);
+  Set<String> get selectedDeviceKeys => Set.unmodifiable(_selectedDeviceKeys);
+  bool get hasActiveFilter =>
+      _searchQuery.isNotEmpty ||
+      _ipFilter.isNotEmpty ||
+      _macFilter.isNotEmpty ||
+      _selectedDeviceKeys.isNotEmpty;
 
-  Set<String> get activePathNodeIds => _repository.getActivePathNodeIds();
-  Set<String> get activePathEdgeIds => _repository.getActivePathEdgeIds();
+  // Resolves all nodes matching a specific device key (normalized MAC or IP)
+  List<NetworkNode> _findNodesForDeviceKey(String key) {
+    final normKey = SharedDevice.isValidMac(key) ? SharedDevice.normalizeMac(key) : key;
+    return _repository.nodes.values.where((n) {
+      if (n.macAddress != null && n.macAddress!.isNotEmpty) {
+        if (SharedDevice.normalizeMac(n.macAddress!) == normKey) return true;
+      }
+      return n.ip == normKey || n.id == normKey;
+    }).toList();
+  }
+
+  Set<String> get activePathNodeIds {
+    if (_selectedDeviceKeys.isNotEmpty) {
+      final active = <String>{};
+      for (final key in _selectedDeviceKeys) {
+        final matchingNodes = _findNodesForDeviceKey(key);
+        for (final node in matchingNodes) {
+          active.add(node.id);
+          active.addAll(_repository.getUpstreamNodeIds(node.id));
+          active.addAll(_repository.getDownstreamNodeIds(node.id));
+        }
+      }
+      if (selectedNodeId != null) {
+        active.addAll(_repository.getActivePathNodeIds());
+      }
+      return active;
+    }
+    return _repository.getActivePathNodeIds();
+  }
+
+  Set<String> get activePathEdgeIds {
+    final activeNodeIds = activePathNodeIds;
+    if (activeNodeIds.isEmpty) return const {};
+    final activeEdges = <String>{};
+    for (final edge in _repository.edges.values) {
+      if (activeNodeIds.contains(edge.sourceIp) && activeNodeIds.contains(edge.targetIp)) {
+        activeEdges.add(edge.edgeId);
+      }
+    }
+    return activeEdges;
+  }
+
+  /// Calculates the common network path (shared backbone hops) traversed by all selected devices.
+  Set<String> get commonPathNodeIds {
+    if (_selectedDeviceKeys.length < 2) return const {};
+    final paths = <Set<String>>[];
+    for (final key in _selectedDeviceKeys) {
+      final matchingNodes = _findNodesForDeviceKey(key);
+      for (final node in matchingNodes) {
+        final path = _repository.getUpstreamNodeIds(node.id);
+        path.add(node.id);
+        paths.add(path);
+      }
+    }
+    if (paths.length < 2) return const {};
+    Set<String> common = Set.from(paths.first);
+    for (var i = 1; i < paths.length; i++) {
+      common = common.intersection(paths[i]);
+    }
+    return common;
+  }
+
+  Set<String> get commonPathEdgeIds {
+    final commonNodes = commonPathNodeIds;
+    if (commonNodes.isEmpty) return const {};
+    final commonEdges = <String>{};
+    for (final edge in _repository.edges.values) {
+      if (commonNodes.contains(edge.sourceIp) && commonNodes.contains(edge.targetIp)) {
+        commonEdges.add(edge.edgeId);
+      }
+    }
+    return commonEdges;
+  }
+
+  Map<String, int> get deviceCounts {
+    final counts = <String, int>{};
+    for (final node in _repository.nodes.values) {
+      if (node.macAddress != null && node.macAddress!.isNotEmpty) {
+        final norm = SharedDevice.normalizeMac(node.macAddress!);
+        counts[norm] = (counts[norm] ?? 0) + 1;
+      }
+      counts[node.ip] = (counts[node.ip] ?? 0) + 1;
+    }
+    return counts;
+  }
+
+  /// Returns all labeled devices from SharedDeviceDatabase that are not hidden in Net Route Scout.
+  List<SharedDevice> get visibleSharedDevices {
+    if (!SharedDeviceDatabase.instance.isInitialized) return const [];
+    try {
+      final all = SharedDeviceDatabase.instance.getAllDevices(hideDefaultNamed: true);
+      return all.where((d) => !_hiddenDeviceMacs.contains(d.macAddress)).toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// Returns active auto-detected nodes in current topology that do not have a custom labeled entry
+  /// in visibleSharedDevices and are not hidden. Returns empty if showAutoDetected is false.
+  List<NetworkNode> get autoDetectedUnlabeledNodes {
+    if (!_showAutoDetected) return const [];
+    final labeledMacs = visibleSharedDevices.map((d) => d.macAddress).toSet();
+    final seen = <String>{};
+    final result = <NetworkNode>[];
+    for (final node in _repository.nodes.values) {
+      if (node.isLocalHost) continue;
+      final mac = node.macAddress != null && node.macAddress!.isNotEmpty
+          ? SharedDevice.normalizeMac(node.macAddress!)
+          : null;
+      final key = mac ?? node.ip;
+      if (mac != null && labeledMacs.contains(mac)) continue;
+      if (_hiddenDeviceMacs.contains(key)) continue;
+      if (seen.add(key)) {
+        result.add(node);
+      }
+    }
+    return result;
+  }
 
   List<NetworkNode> get selectedPathBreadcrumbs =>
       selectedNodeId != null ? _repository.getPathBreadcrumbs(selectedNodeId!) : const [];
@@ -87,17 +221,44 @@ class TopologyViewModel extends ChangeNotifier {
       _repository.getPathBreadcrumbs(targetId);
 
   List<NetworkNode> get filteredNodes {
-    final list = _repository.nodes.values.toList();
-    if (_searchQuery.trim().isEmpty) return list;
-    final q = _searchQuery.toLowerCase().trim();
-    return list.where((n) {
-      return n.ip.toLowerCase().contains(q) ||
-          (n.hostname?.toLowerCase().contains(q) ?? false) ||
-          (n.sharedDeviceName?.toLowerCase().contains(q) ?? false) ||
-          (n.macAddress?.toLowerCase().contains(q) ?? false) ||
-          (n.vendor?.toLowerCase().contains(q) ?? false) ||
-          (n.deviceCategoryKey?.toLowerCase().contains(q) ?? false);
-    }).toList();
+    var list = _repository.nodes.values.toList();
+
+    // 1. Filter by multi-selected devices and their active paths
+    if (_selectedDeviceKeys.isNotEmpty) {
+      final activeNodes = activePathNodeIds;
+      list = list.where((n) => activeNodes.contains(n.id)).toList();
+    }
+
+    // 2. IP Filter
+    if (_ipFilter.trim().isNotEmpty) {
+      final ipQ = _ipFilter.toLowerCase().trim();
+      list = list.where((n) => n.ip.toLowerCase().contains(ipQ)).toList();
+    }
+
+    // 3. MAC Filter
+    if (_macFilter.trim().isNotEmpty) {
+      final macQ = _macFilter.toLowerCase().trim().replaceAll(':', '').replaceAll('-', '');
+      list = list.where((n) {
+        if (n.macAddress == null) return false;
+        final clean = n.macAddress!.toLowerCase().replaceAll(':', '').replaceAll('-', '');
+        return clean.contains(macQ);
+      }).toList();
+    }
+
+    // 4. Search Query
+    if (_searchQuery.trim().isNotEmpty) {
+      final q = _searchQuery.toLowerCase().trim();
+      list = list.where((n) {
+        return n.ip.toLowerCase().contains(q) ||
+            (n.hostname?.toLowerCase().contains(q) ?? false) ||
+            (n.sharedDeviceName?.toLowerCase().contains(q) ?? false) ||
+            (n.macAddress?.toLowerCase().contains(q) ?? false) ||
+            (n.vendor?.toLowerCase().contains(q) ?? false) ||
+            (n.deviceCategoryKey?.toLowerCase().contains(q) ?? false);
+      }).toList();
+    }
+
+    return list;
   }
 
   TopologyViewModel({
@@ -147,6 +308,12 @@ class TopologyViewModel extends ChangeNotifier {
   }
 
   Future<void> _initServices() async {
+    try {
+      final prefs = await RouteTracerPreferencesService.loadPreferences();
+      _showAutoDetected = prefs.showAutoDetected;
+      _hiddenDeviceMacs = prefs.hiddenDeviceMacs;
+    } catch (_) {}
+
     try {
       await _sharedDeviceService.init();
       _isSharedDbConnected = SharedDeviceDatabase.instance.isInitialized;
@@ -525,6 +692,93 @@ class TopologyViewModel extends ChangeNotifier {
   void setSearchQuery(String query) {
     _searchQuery = query;
     _notify();
+  }
+
+  void setIpFilter(String val) {
+    _ipFilter = val;
+    _notify();
+  }
+
+  void setMacFilter(String val) {
+    _macFilter = val;
+    _notify();
+  }
+
+  void setShowAutoDetected(bool value) {
+    if (_showAutoDetected == value) return;
+    _showAutoDetected = value;
+    RouteTracerPreferencesService.savePreferences(
+      RouteTracerPreferences(
+        showAutoDetected: _showAutoDetected,
+        hiddenDeviceMacs: _hiddenDeviceMacs,
+      ),
+    );
+    _notify();
+  }
+
+  void toggleDeviceVisibility(String macOrKey) {
+    final normalized = SharedDevice.isValidMac(macOrKey)
+        ? SharedDevice.normalizeMac(macOrKey)
+        : macOrKey;
+    if (_hiddenDeviceMacs.contains(normalized)) {
+      _hiddenDeviceMacs = Set.from(_hiddenDeviceMacs)..remove(normalized);
+    } else {
+      _hiddenDeviceMacs = Set.from(_hiddenDeviceMacs)..add(normalized);
+      if (_selectedDeviceKeys.contains(normalized)) {
+        toggleDevicePill(normalized);
+      }
+    }
+    RouteTracerPreferencesService.savePreferences(
+      RouteTracerPreferences(
+        showAutoDetected: _showAutoDetected,
+        hiddenDeviceMacs: _hiddenDeviceMacs,
+      ),
+    );
+    _notify();
+  }
+
+  void toggleDevicePill(String key) {
+    final normalized = SharedDevice.isValidMac(key) ? SharedDevice.normalizeMac(key) : key;
+    final current = Set<String>.from(_selectedDeviceKeys);
+    if (current.contains(normalized)) {
+      current.remove(normalized);
+    } else {
+      current.add(normalized);
+    }
+    _selectedDeviceKeys = current;
+    _notify();
+  }
+
+  void clearDeviceFilters() {
+    if (_selectedDeviceKeys.isNotEmpty) {
+      _selectedDeviceKeys = {};
+      _notify();
+    }
+  }
+
+  void resetFilters() {
+    _searchQuery = '';
+    _ipFilter = '';
+    _macFilter = '';
+    _selectedDeviceKeys = {};
+    _notify();
+  }
+
+  void updateDeviceMetadata({
+    required String macAddress,
+    required String name,
+    String? category,
+    String? vendor,
+    String? notes,
+  }) {
+    _sharedDeviceService.updateDeviceDetails(
+      macAddress,
+      name: name,
+      deviceType: category,
+      vendor: vendor,
+      notes: notes,
+    );
+    _syncSharedMetadata();
   }
 
   void selectNode(String? nodeId) {

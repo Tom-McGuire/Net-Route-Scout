@@ -4,7 +4,13 @@ import 'package:net_route_scout/core/app_theme.dart';
 import 'package:net_route_scout/domain/models/network_node.dart';
 
 class EditDeviceDialog extends StatefulWidget {
-  final NetworkNode node;
+  final NetworkNode? node;
+  final String? macAddress;
+  final String? initialName;
+  final String? initialCategory;
+  final String? initialVendor;
+  final String? initialNotes;
+  final String? initialIp;
   final Function({
     required String ip,
     required String rawMac,
@@ -16,7 +22,13 @@ class EditDeviceDialog extends StatefulWidget {
 
   const EditDeviceDialog({
     super.key,
-    required this.node,
+    this.node,
+    this.macAddress,
+    this.initialName,
+    this.initialCategory,
+    this.initialVendor,
+    this.initialNotes,
+    this.initialIp,
     required this.onSave,
   });
 
@@ -37,11 +49,19 @@ class _EditDeviceDialogState extends State<EditDeviceDialog> {
   void initState() {
     super.initState();
     final n = widget.node;
-    _nameController = TextEditingController(text: n.sharedDeviceName ?? n.hostname ?? '');
-    _macController = TextEditingController(text: n.macAddress ?? '');
-    _vendorController = TextEditingController(text: n.vendor ?? '');
-    _notesController = TextEditingController(text: n.sharedNotes ?? '');
-    _selectedCategory = n.deviceCategoryKey;
+    _nameController = TextEditingController(
+      text: widget.initialName ?? n?.sharedDeviceName ?? n?.hostname ?? '',
+    );
+    _macController = TextEditingController(
+      text: widget.macAddress ?? n?.macAddress ?? '',
+    );
+    _vendorController = TextEditingController(
+      text: widget.initialVendor ?? n?.vendor ?? '',
+    );
+    _notesController = TextEditingController(
+      text: widget.initialNotes ?? n?.sharedNotes ?? '',
+    );
+    _selectedCategory = widget.initialCategory ?? n?.deviceCategoryKey;
 
     try {
       if (SharedDeviceDatabase.instance.isInitialized) {
@@ -115,7 +135,13 @@ class _EditDeviceDialogState extends State<EditDeviceDialog> {
                           ),
                         ),
                         Text(
-                          'IP: ${widget.node.ip} (Hop ${widget.node.hopDepth})',
+                          widget.node != null
+                              ? 'IP: ${widget.node!.ip} (Hop ${widget.node!.hopDepth})'
+                              : (widget.initialIp != null && widget.initialIp!.isNotEmpty
+                                  ? 'IP: ${widget.initialIp}'
+                                  : (widget.macAddress != null && widget.macAddress!.isNotEmpty
+                                      ? 'MAC: ${widget.macAddress}'
+                                      : 'Shared Device Library')),
                           style: const TextStyle(
                             fontSize: 11,
                             fontFamily: 'monospace',
@@ -259,7 +285,7 @@ class _EditDeviceDialogState extends State<EditDeviceDialog> {
                       }
 
                       widget.onSave(
-                        ip: widget.node.ip,
+                        ip: widget.initialIp ?? widget.node?.ip ?? '',
                         rawMac: rawMac,
                         name: _nameController.text.trim(),
                         category: _selectedCategory,

@@ -27,6 +27,7 @@ void main() {
     expect(find.text('No Network Routes Traced'), findsOneWidget);
 
     // Click Demo Network
+    await tester.ensureVisible(find.text('Demo Network'));
     await tester.tap(find.text('Demo Network'));
     await tester.pumpAndSettle();
 
