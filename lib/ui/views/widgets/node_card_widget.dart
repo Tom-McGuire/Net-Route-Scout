@@ -9,6 +9,7 @@ class NodeCardWidget extends StatelessWidget {
   final bool isDimmed;
   final bool isSearchMatch;
   final VoidCallback onTap;
+  final void Function(TapUpDetails details)? onSecondaryTapUp;
 
   const NodeCardWidget({
     super.key,
@@ -18,6 +19,7 @@ class NodeCardWidget extends StatelessWidget {
     required this.isDimmed,
     this.isSearchMatch = false,
     required this.onTap,
+    this.onSecondaryTapUp,
   });
 
   @override
@@ -42,6 +44,7 @@ class NodeCardWidget extends StatelessWidget {
         color: Colors.transparent,
         child: InkWell(
           onTap: onTap,
+          onSecondaryTapUp: onSecondaryTapUp,
           borderRadius: BorderRadius.circular(8),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 180),

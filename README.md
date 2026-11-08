@@ -57,6 +57,10 @@ Diagnosing multi-hop enterprise networks, campus subnets, or lab environments of
 - **Clean Process Lifecycle**:
   - Implements `WidgetsBindingObserver.didRequestAppExit` to ensure zero orphaned background ping or traceroute processes upon closing the application.
 
+- **Inter-App Suite Integration (ARP Scout ↔ Net Route Scout)**:
+  - **Inbound Trace Commands**: Accepts `--target <ip>`, `--adapter-ip <ip>`, `--adapter-name <name>`, and `--auto-start` via CLI or loopback socket IPC (port `44101`), automatically selecting the matching physical network adapter.
+  - **Outbound Subnet Sweeps**: Right-click any node on the Topology Canvas or Route Table, or click the action button in the Node Inspector Card to trigger a subnet sweep in **ARP Scout** via warm handoff (IPC port `44102`) or cold process launch.
+
 - **One-Click Demo Network**:
   - Includes a realistic enterprise multi-hop demo topology to immediately test and explore all features offline.
 

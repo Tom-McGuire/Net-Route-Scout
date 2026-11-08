@@ -40,7 +40,7 @@ class DetailInspectorPanel extends StatelessWidget {
     final routedTargets = node.associatedTargets.toList();
 
     return Container(
-      constraints: const BoxConstraints(maxHeight: 230),
+      constraints: const BoxConstraints(maxHeight: 270),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -48,10 +48,12 @@ class DetailInspectorPanel extends StatelessWidget {
           // Section 1: Device Summary Card
           SizedBox(
             width: 320,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
+            child: SingleChildScrollView(
+              physics: const ClampingScrollPhysics(),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
                 Row(
                   children: [
                     Container(
@@ -151,11 +153,46 @@ class DetailInspectorPanel extends StatelessWidget {
                   _buildMetaRow('Reverse DNS', node.hostname!),
                 if (node.sharedNotes != null && node.sharedNotes!.isNotEmpty)
                   _buildMetaRow('Notes', node.sharedNotes!),
+
+                // Scan Subnet in ARP Scout Action Button
+                Builder(
+                  builder: (context) {
+                    final subnet = vm.deriveSubnetForNode(node);
+                    if (subnet.isEmpty) return const SizedBox.shrink();
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 8.0),
+                      child: SizedBox(
+                        width: double.infinity,
+                        height: 28,
+                        child: OutlinedButton.icon(
+                          onPressed: () => vm.launchArpScoutForNode(context, node),
+                          icon: const Icon(Icons.radar, size: 14, color: AppTheme.primaryAccent),
+                          label: Text(
+                            'Scan Subnet in ARP Scout ($subnet)',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(color: AppTheme.primaryAccent, width: 1),
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            visualDensity: VisualDensity.compact,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
               ],
             ),
           ),
+        ),
 
-          const SizedBox(width: 16),
+        const SizedBox(width: 16),
           const VerticalDivider(width: 1),
           const SizedBox(width: 16),
 

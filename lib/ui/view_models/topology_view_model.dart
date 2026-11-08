@@ -11,7 +11,9 @@ import '../../data/services/icmp_service.dart';
 import '../../data/services/network_adapter_service.dart';
 import '../../data/services/shared_device_service.dart';
 import '../../data/services/traceroute_service.dart';
+import '../../data/services/inter_app_launcher.dart';
 import '../../domain/models/cancellation_token.dart';
+import '../../domain/models/inter_app_arguments.dart';
 import '../../domain/models/network_adapter_info.dart';
 import '../../domain/models/network_edge.dart';
 import '../../domain/models/network_node.dart';
@@ -37,6 +39,7 @@ class TopologyViewModel extends ChangeNotifier {
   bool _disposed = false;
   Timer? _throttleTimer;
   bool _needsNotify = false;
+  InterAppArguments? _initialArgs;
 
   // View State
   List<NetworkAdapterInfo> _adapters = [];
@@ -100,12 +103,15 @@ class TopologyViewModel extends ChangeNotifier {
     ArpService? arpService,
     IcmpService? icmpService,
     SharedDeviceService? sharedDeviceService,
+    InterAppArguments? initialArgs,
     bool autoInit = true,
   })  : _repository = repository ?? TopologyRepository(),
         _tracerouteService = tracerouteService ?? TracerouteService(),
         _arpService = arpService ?? ArpService(),
         _icmpService = icmpService ?? IcmpService(),
-        _sharedDeviceService = sharedDeviceService ?? SharedDeviceService() {
+        _sharedDeviceService = sharedDeviceService ?? SharedDeviceService(),
+        // ignore: prefer_initializing_formals
+        _initialArgs = initialArgs {
     if (autoInit) {
       _initServices();
     }
@@ -173,6 +179,18 @@ class TopologyViewModel extends ChangeNotifier {
       sharedDeviceService: _sharedDeviceService,
     );
 
+    // If initial launch arguments were provided (CLI cold launch), process them
+    if (_initialArgs != null) {
+      final args = _initialArgs!;
+      _initialArgs = null;
+      await handleIncomingCommand(
+        target: args.target,
+        adapterIp: args.adapterIp,
+        adapterName: args.adapterName,
+        autoStart: args.autoStart,
+      );
+    }
+
     _notify();
   }
 
@@ -232,6 +250,160 @@ class TopologyViewModel extends ChangeNotifier {
       sharedDeviceService: _sharedDeviceService,
     );
     _notify();
+  }
+
+  /// Matches a network adapter by exact IP match first (primary key),
+  /// followed by case-insensitive interface name or id match (secondary fallback).
+  static NetworkAdapterInfo? matchAdapter(
+    List<NetworkAdapterInfo> adapters, {
+    String? adapterIp,
+    String? adapterName,
+  }) {
+    if (adapters.isEmpty) return null;
+
+    // 1. Primary match: exact physical IP address match
+    if (adapterIp != null && adapterIp.trim().isNotEmpty) {
+      final targetIp = adapterIp.trim();
+      for (final a in adapters) {
+        if (a.ipAddress == targetIp) {
+          return a;
+        }
+      }
+    }
+
+    // 2. Secondary match: case-insensitive interface name or id match
+    if (adapterName != null && adapterName.trim().isNotEmpty) {
+      final targetName = adapterName.trim().toLowerCase();
+      for (final a in adapters) {
+        if (a.name.toLowerCase() == targetName || a.id.toLowerCase() == targetName) {
+          return a;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /// Selects the matching network adapter if found in the available adapters.
+  void selectMatchingAdapter({
+    String? adapterIp,
+    String? adapterName,
+    bool autoPopulateTarget = false,
+  }) {
+    if (_adapters.isEmpty) return;
+    final matched = matchAdapter(
+      _adapters,
+      adapterIp: adapterIp,
+      adapterName: adapterName,
+    );
+    if (matched != null) {
+      selectAdapter(matched, autoPopulateTarget: autoPopulateTarget);
+    }
+  }
+
+  /// Handles incoming commands from CLI arguments or warm handoff loopback IPC socket.
+  Future<void> handleIncomingCommand({
+    String? target,
+    String? adapterIp,
+    String? adapterName,
+    bool autoStart = false,
+  }) async {
+    // 1. Ensure adapters are loaded if not ready
+    if (_adapters.isEmpty) {
+      await refreshAdapters();
+    }
+
+    // 2. Select matching adapter if provided
+    if (adapterIp != null || adapterName != null) {
+      selectMatchingAdapter(
+        adapterIp: adapterIp,
+        adapterName: adapterName,
+        autoPopulateTarget: false,
+      );
+    }
+
+    // 3. Set incoming target if provided
+    if (target != null && target.trim().isNotEmpty) {
+      setTargetInput(target.trim());
+    }
+
+    // 4. Trigger sweep if autoStart is true
+    if (autoStart) {
+      if (_scanProgress.isScanning) {
+        await cancelSweep();
+      }
+      await startSweep();
+    }
+  }
+
+  /// Derives the appropriate CIDR subnet to scan in ARP Scout for [node].
+  ///
+  /// Returns an empty string if the node is unresponsive or has an anonymous hop IP.
+  /// If the node is on the local adapter's subnet, returns the adapter's CIDR.
+  /// For routed remote hops/endpoints, defaults to a /24 subnet.
+  String deriveSubnetForNode(NetworkNode node) {
+    if (node.isUnresponsive || node.ip.isEmpty || node.ip.startsWith('anon:')) {
+      return '';
+    }
+
+    if (node.isLocalHost && _selectedAdapter != null && _selectedAdapter!.subnetCidr.isNotEmpty) {
+      return _selectedAdapter!.subnetCidr;
+    }
+
+    if (_selectedAdapter != null && _selectedAdapter!.subnetCidr.isNotEmpty) {
+      final calc = NetworkAdapterInfo.calculateSubnetCidr(
+        node.ip,
+        _selectedAdapter!.prefixLength,
+      );
+      if (calc == _selectedAdapter!.subnetCidr) {
+        return _selectedAdapter!.subnetCidr;
+      }
+    }
+
+    return NetworkAdapterInfo.calculateSubnetCidr(node.ip, 24);
+  }
+
+  /// Outbound integration: Launches ARP Scout to scan the subnet associated with [node].
+  Future<void> launchArpScoutForNode(BuildContext context, NetworkNode node) async {
+    final subnet = deriveSubnetForNode(node);
+    if (subnet.isEmpty) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Cannot scan subnet for unresponsive hop.'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+      return;
+    }
+
+    try {
+      await InterAppLauncher.launchSubnetScan(
+        subnetCidr: subnet,
+        currentAdapter: _selectedAdapter,
+        autoStart: true,
+      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Triggered ARP Scout scan on $subnet'),
+            duration: const Duration(seconds: 2),
+            backgroundColor: const Color(0xFF10B981),
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not launch ARP Scout: $e'),
+            duration: const Duration(seconds: 3),
+            backgroundColor: const Color(0xFFEF4444),
+          ),
+        );
+      }
+    }
   }
 
   void setTargetInput(String value) {

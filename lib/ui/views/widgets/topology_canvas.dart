@@ -1,10 +1,12 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:net_route_scout/core/app_theme.dart';
 import 'package:net_route_scout/domain/models/network_edge.dart';
 import 'package:net_route_scout/domain/models/network_node.dart';
 import 'package:net_route_scout/ui/view_models/topology_view_model.dart';
 import 'package:provider/provider.dart';
+import 'edit_device_dialog.dart';
 import 'node_card_widget.dart';
 
 class TopologyCanvas extends StatefulWidget {
@@ -38,6 +40,122 @@ class _TopologyCanvasState extends State<TopologyCanvas> {
 
   void _resetZoom() {
     _transformController.value = Matrix4.identity();
+  }
+
+  void _showNodeContextMenu(
+    BuildContext context,
+    TopologyViewModel vm,
+    NetworkNode node,
+    Offset globalPosition,
+  ) {
+    final subnet = vm.deriveSubnetForNode(node);
+    final hasValidSubnet = subnet.isNotEmpty;
+
+    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox?;
+    final position = RelativeRect.fromRect(
+      Rect.fromLTWH(globalPosition.dx, globalPosition.dy, 1, 1),
+      Offset.zero & (overlay?.size ?? const Size(1920, 1080)),
+    );
+
+    showMenu<String>(
+      context: context,
+      position: position,
+      color: AppTheme.surfaceContainerHigh,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: const BorderSide(color: AppTheme.border),
+      ),
+      items: [
+        if (hasValidSubnet)
+          PopupMenuItem<String>(
+            value: 'scan_arp',
+            child: Row(
+              children: [
+                const Icon(Icons.radar, size: 16, color: AppTheme.primaryAccent),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Scan Subnet with ARP Scout ($subnet)',
+                    style: const TextStyle(fontSize: 12.5, color: Colors.white),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        PopupMenuItem<String>(
+          value: 'select_path',
+          child: Row(
+            children: [
+              const Icon(Icons.alt_route, size: 16, color: AppTheme.activeHighlight),
+              const SizedBox(width: 10),
+              Text(
+                vm.selectedNodeId == node.id ? 'Deselect Node' : 'Focus / Select Node Path',
+                style: const TextStyle(fontSize: 12.5, color: Colors.white),
+              ),
+            ],
+          ),
+        ),
+        PopupMenuItem<String>(
+          value: 'edit_shared',
+          child: const Row(
+            children: [
+              Icon(Icons.edit, size: 16, color: Colors.white70),
+              SizedBox(width: 10),
+              Text(
+                'Edit Shared Device Identity',
+                style: TextStyle(fontSize: 12.5, color: Colors.white),
+              ),
+            ],
+          ),
+        ),
+        if (!node.isUnresponsive)
+          PopupMenuItem<String>(
+            value: 'copy_ip',
+            child: const Row(
+              children: [
+                Icon(Icons.copy, size: 16, color: Colors.white70),
+                SizedBox(width: 10),
+                Text(
+                  'Copy IP Address',
+                  style: TextStyle(fontSize: 12.5, color: Colors.white),
+                ),
+              ],
+            ),
+          ),
+      ],
+    ).then((choice) {
+      if (!context.mounted || choice == null) return;
+      switch (choice) {
+        case 'scan_arp':
+          vm.launchArpScoutForNode(context, node);
+          break;
+        case 'select_path':
+          if (vm.selectedNodeId == node.id) {
+            vm.clearSelection();
+          } else {
+            vm.selectNode(node.id);
+          }
+          break;
+        case 'edit_shared':
+          showDialog(
+            context: context,
+            builder: (ctx) => EditDeviceDialog(
+              node: node,
+              onSave: vm.updateDeviceDetails,
+            ),
+          );
+          break;
+        case 'copy_ip':
+          Clipboard.setData(ClipboardData(text: node.ip));
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Copied ${node.ip} to clipboard'),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+          break;
+      }
+    });
   }
 
   @override
@@ -159,6 +277,9 @@ class _TopologyCanvasState extends State<TopologyCanvas> {
                             } else {
                               vm.selectNode(node.id);
                             }
+                          },
+                          onSecondaryTapUp: (details) {
+                            _showNodeContextMenu(context, vm, node, details.globalPosition);
                           },
                         ),
                       );
