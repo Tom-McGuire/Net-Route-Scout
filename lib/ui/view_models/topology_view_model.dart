@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:network_suite_shared/network_suite_shared.dart';
+import '../../core/app_theme.dart';
 import '../../core/constants.dart';
 import '../../data/repositories/topology_repository.dart';
 import '../../data/services/arp_service.dart';
@@ -395,6 +398,11 @@ class TopologyViewModel extends ChangeNotifier {
       }
     } catch (e) {
       if (context.mounted) {
+        if (e.toString().contains('not found')) {
+          _promptUserToLocateArpScout(context, subnet);
+          return;
+        }
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Could not launch ARP Scout: $e'),
@@ -404,6 +412,94 @@ class TopologyViewModel extends ChangeNotifier {
         );
       }
     }
+  }
+
+  void _promptUserToLocateArpScout(BuildContext context, String subnet) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.surfaceContainerHigh,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: const BorderSide(color: AppTheme.border),
+        ),
+        title: const Row(
+          children: [
+            Icon(Icons.radar, color: AppTheme.primaryAccent, size: 22),
+            SizedBox(width: 10),
+            Text('Locate ARP Scout', style: TextStyle(color: Colors.white, fontSize: 16)),
+          ],
+        ),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Net Route Scout could not automatically locate the ARP Scout application on this system.',
+              style: TextStyle(color: Colors.white70, fontSize: 13),
+            ),
+            SizedBox(height: 10),
+            Text(
+              'Please locate the ARP Scout executable (arp_scout.exe on Windows, arp_scout on Linux/macOS). Net Route Scout will remember this location for all future launches.',
+              style: TextStyle(color: Colors.white60, fontSize: 12),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel', style: TextStyle(color: Colors.white60)),
+          ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primaryAccent,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              try {
+                final result = await FilePicker.pickFiles(
+                  dialogTitle: 'Select ARP Scout Executable',
+                  type: FileType.custom,
+                  allowedExtensions: Platform.isWindows ? ['exe'] : null,
+                );
+                if (result.isNotEmpty) {
+                  final pickedPath = result.first.path;
+                  if (pickedPath != null && await File(pickedPath).exists()) {
+                    await InterAppLauncher.saveCustomArpScoutPath(pickedPath);
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Saved ARP Scout path: $pickedPath'),
+                          backgroundColor: const Color(0xFF10B981),
+                          duration: const Duration(seconds: 2),
+                        ),
+                      );
+                      await InterAppLauncher.launchSubnetScan(
+                        subnetCidr: subnet,
+                        currentAdapter: _selectedAdapter,
+                        autoStart: true,
+                      );
+                    }
+                  }
+                }
+              } catch (err) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Error selecting ARP Scout: $err'),
+                      backgroundColor: const Color(0xFFEF4444),
+                    ),
+                  );
+                }
+              }
+            },
+            icon: const Icon(Icons.folder_open, size: 16),
+            label: const Text('Browse for Executable...'),
+          ),
+        ],
+      ),
+    );
   }
 
   void setTargetInput(String value) {

@@ -283,6 +283,18 @@ void main() {
       );
       expect(resolved, isNull);
     });
+
+    test('Saves and retrieves custom ARP Scout path', () async {
+      final tempDir = Directory.systemTemp.createTempSync('custom_scout_');
+      final mockExe = File('${tempDir.path}/custom_arp_scout.exe')..createSync();
+      try {
+        await InterAppLauncher.saveCustomArpScoutPath(mockExe.path);
+        final retrieved = await InterAppLauncher.getCustomArpScoutPath();
+        expect(retrieved, mockExe.path);
+      } finally {
+        tempDir.deleteSync(recursive: true);
+      }
+    });
   });
 
   group('TopologyViewModel Incoming Command Handling Tests', () {
