@@ -58,7 +58,7 @@ void main() {
         macAddress: '00:1A:2B:3C:4D:5E',
         subnetCidr: '192.168.1.0/24',
       );
-      expect(adapterWithMac.displayName, 'Ethernet (192.168.1.50 • 00:1A:2B:3C:4D:5E)');
+      expect(adapterWithMac.displayName, 'Ethernet (192.168.1.50)');
       expect(adapterWithMac.shortDisplayName, 'Ethernet: 192.168.1.50');
 
       const adapterWithoutMac = NetworkAdapterInfo(

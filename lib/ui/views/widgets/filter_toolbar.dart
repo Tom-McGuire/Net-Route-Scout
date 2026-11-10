@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:network_suite_shared/network_suite_shared.dart';
 import 'package:provider/provider.dart';
-import 'package:net_route_scout/domain/models/network_node.dart';
+import 'package:net_route_scout/domain/models/unknown_device_entry.dart';
 import 'package:net_route_scout/ui/view_models/topology_view_model.dart';
 import 'device_library_dialog.dart';
 import 'edit_device_dialog.dart';
@@ -277,8 +277,8 @@ class _FilterToolbarState extends State<FilterToolbar> {
   }
 
   Widget _buildDevicesRow(BuildContext context, TopologyViewModel vm) {
-    final visibleShared = vm.visibleSharedDevices;
-    final autoDetected = vm.autoDetectedUnlabeledNodes;
+    final knownCustom = vm.knownCustomDevices;
+    final visibleUnknown = vm.visibleUnknownDevices;
     final selectedKeys = vm.selectedDeviceKeys;
     final deviceCounts = vm.deviceCounts;
 
@@ -308,8 +308,8 @@ class _FilterToolbarState extends State<FilterToolbar> {
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
-                // 1. Shared Library Devices
-                ...visibleShared.map((device) {
+                // 1. Known Custom Library Devices (Shown by default)
+                ...knownCustom.map((device) {
                   final normMac = SharedDevice.normalizeMac(device.macAddress);
                   final isSelected = selectedKeys.contains(normMac);
                   final count = deviceCounts[normMac] ?? 0;
@@ -351,9 +351,9 @@ class _FilterToolbarState extends State<FilterToolbar> {
                   );
                 }),
 
-                // 2. Auto-Detected Nodes (shown if toggle is enabled)
-                if (vm.showAutoDetected && autoDetected.isNotEmpty) ...[
-                  if (visibleShared.isNotEmpty) ...[
+                // 2. Unknown / Auto-Detected Devices (Shown if unhidden or toggle enabled)
+                if (visibleUnknown.isNotEmpty) ...[
+                  if (knownCustom.isNotEmpty) ...[
                     const SizedBox(width: 4),
                     Container(
                       height: 18,
@@ -363,18 +363,15 @@ class _FilterToolbarState extends State<FilterToolbar> {
                     const SizedBox(width: 8),
                   ],
 
-                  ...autoDetected.map((node) {
-                    final key = node.macAddress != null && node.macAddress!.isNotEmpty
-                        ? SharedDevice.normalizeMac(node.macAddress!)
-                        : node.ip;
-                    final isSelected = selectedKeys.contains(key);
-                    final count = deviceCounts[key] ?? 1;
+                  ...visibleUnknown.map((entry) {
+                    final isSelected = selectedKeys.contains(entry.key);
+                    final count = deviceCounts[entry.key] ?? 1;
 
                     return Padding(
                       padding: const EdgeInsets.only(right: 6.0),
                       child: GestureDetector(
                         onSecondaryTapDown: (details) =>
-                            _showAutoDetectedDeviceMenu(details, node, vm),
+                            _showUnknownDeviceMenu(details, entry, vm),
                         child: FilterChip(
                           selected: isSelected,
                           showCheckmark: false,
@@ -386,7 +383,7 @@ class _FilterToolbarState extends State<FilterToolbar> {
                             backgroundColor: Colors.grey,
                           ),
                           label: Text(
-                            '${node.displayName} ($count)',
+                            '${entry.displayName} ($count)',
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
@@ -399,8 +396,8 @@ class _FilterToolbarState extends State<FilterToolbar> {
                             color: isSelected ? Colors.blueAccent : const Color(0xFF3E3E42),
                             width: 1,
                           ),
-                          onSelected: (_) => vm.toggleDevicePill(key),
-                          tooltip: 'Auto-detected node (${node.ip})\nRight-click to label or hide',
+                          onSelected: (_) => vm.toggleDevicePill(entry.key),
+                          tooltip: 'Unknown device (${entry.ip ?? entry.macAddress ?? entry.key})\nRight-click to name or hide',
                         ),
                       ),
                     );
@@ -565,17 +562,14 @@ class _FilterToolbarState extends State<FilterToolbar> {
     }
   }
 
-  Future<void> _showAutoDetectedDeviceMenu(
+  Future<void> _showUnknownDeviceMenu(
     TapDownDetails details,
-    NetworkNode node,
+    UnknownDeviceEntry entry,
     TopologyViewModel vm,
   ) async {
     final overlay = Overlay.of(context).context.findRenderObject() as RenderBox?;
     if (overlay == null) return;
     final pos = details.globalPosition;
-    final key = node.macAddress != null && node.macAddress!.isNotEmpty
-        ? SharedDevice.normalizeMac(node.macAddress!)
-        : node.ip;
     final choice = await showMenu<String>(
       context: context,
       position: RelativeRect.fromRect(
@@ -589,7 +583,7 @@ class _FilterToolbarState extends State<FilterToolbar> {
             children: [
               const Icon(Icons.filter_alt, size: 16),
               const SizedBox(width: 8),
-              Text('Toggle Filter (${node.displayName})'),
+              Text('Toggle Filter (${entry.displayName})'),
             ],
           ),
         ),
@@ -614,33 +608,44 @@ class _FilterToolbarState extends State<FilterToolbar> {
           ),
         ),
         const PopupMenuDivider(),
-        PopupMenuItem(
-          value: 'copy',
-          child: Row(
-            children: [
-              const Icon(Icons.copy, size: 16),
-              const SizedBox(width: 8),
-              Text('Copy IP (${node.ip})'),
-            ],
+        if (entry.macAddress != null && entry.macAddress!.isNotEmpty)
+          PopupMenuItem(
+            value: 'copy_mac',
+            child: Row(
+              children: [
+                const Icon(Icons.copy, size: 16),
+                const SizedBox(width: 8),
+                Text('Copy MAC (${entry.macAddress})'),
+              ],
+            ),
           ),
-        ),
+        if (entry.ip != null && entry.ip!.isNotEmpty)
+          PopupMenuItem(
+            value: 'copy_ip',
+            child: Row(
+              children: [
+                const Icon(Icons.copy, size: 16),
+                const SizedBox(width: 8),
+                Text('Copy IP (${entry.ip})'),
+              ],
+            ),
+          ),
       ],
     );
     if (choice == null || !mounted) return;
     switch (choice) {
       case 'filter':
-        vm.toggleDevicePill(key);
+        vm.toggleDevicePill(entry.key);
         break;
       case 'edit':
         showDialog(
           context: context,
           builder: (_) => EditDeviceDialog(
-            node: node,
-            macAddress: node.macAddress ?? '',
-            initialName: node.hostname ?? '',
-            initialCategory: node.deviceCategoryKey ?? 'other',
-            initialVendor: node.vendor,
-            initialIp: node.ip,
+            macAddress: entry.macAddress ?? '',
+            initialName: entry.displayName.startsWith('Device ') ? '' : entry.displayName,
+            initialCategory: 'other',
+            initialVendor: entry.vendor,
+            initialIp: entry.ip,
             onSave: ({
               required String ip,
               required String rawMac,
@@ -655,20 +660,33 @@ class _FilterToolbarState extends State<FilterToolbar> {
                 category: category,
                 vendor: vendor,
                 notes: notes,
+                ip: ip.isNotEmpty ? ip : (entry.ip ?? ''),
               );
             },
           ),
         );
         break;
       case 'hide':
-        vm.toggleDeviceVisibility(key);
+        vm.toggleDeviceVisibility(entry.key);
         break;
-      case 'copy':
-        await Clipboard.setData(ClipboardData(text: node.ip));
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Copied IP ${node.ip}')),
-          );
+      case 'copy_mac':
+        if (entry.macAddress != null) {
+          await Clipboard.setData(ClipboardData(text: entry.macAddress!));
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Copied MAC ${entry.macAddress}')),
+            );
+          }
+        }
+        break;
+      case 'copy_ip':
+        if (entry.ip != null) {
+          await Clipboard.setData(ClipboardData(text: entry.ip!));
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Copied IP ${entry.ip}')),
+            );
+          }
         }
         break;
     }

@@ -24,6 +24,7 @@ import '../../domain/models/network_node.dart';
 import '../../domain/models/scan_progress.dart';
 import '../../domain/models/trace_hop.dart';
 import '../../domain/models/trace_result.dart';
+import '../../domain/models/unknown_device_entry.dart';
 
 enum TopologyViewMode {
   graph,
@@ -63,6 +64,7 @@ class TopologyViewModel extends ChangeNotifier {
   // Device Filter & Library State
   bool _showAutoDetected = false;
   Set<String> _hiddenDeviceMacs = {};
+  Set<String> _explicitlyShownMacs = {};
   Set<String> _selectedDeviceKeys = {};
 
   // Getters
@@ -88,6 +90,7 @@ class TopologyViewModel extends ChangeNotifier {
   bool get isScanning => _scanProgress.isScanning;
   bool get showAutoDetected => _showAutoDetected;
   Set<String> get hiddenDeviceMacs => Set.unmodifiable(_hiddenDeviceMacs);
+  Set<String> get explicitlyShownMacs => Set.unmodifiable(_explicitlyShownMacs);
   Set<String> get selectedDeviceKeys => Set.unmodifiable(_selectedDeviceKeys);
   bool get hasActiveFilter =>
       _searchQuery.isNotEmpty ||
@@ -181,6 +184,19 @@ class TopologyViewModel extends ChangeNotifier {
     return counts;
   }
 
+  /// Returns all devices in SharedDeviceDatabase that have user-assigned custom names.
+  List<SharedDevice> get allKnownCustomDevices {
+    if (!SharedDeviceDatabase.instance.isInitialized) return const [];
+    try {
+      return SharedDeviceDatabase.instance.getAllDevices(hideDefaultNamed: true);
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// Known custom devices that are not hidden in Net Route Scout (shown as filter pills).
+  List<SharedDevice> get knownCustomDevices => visibleSharedDevices;
+
   /// Returns all labeled devices from SharedDeviceDatabase that are not hidden in Net Route Scout.
   List<SharedDevice> get visibleSharedDevices {
     if (!SharedDeviceDatabase.instance.isInitialized) return const [];
@@ -192,10 +208,71 @@ class TopologyViewModel extends ChangeNotifier {
     }
   }
 
+  /// Returns all unknown/unnamed devices (devices in database without custom names,
+  /// plus nodes in active topology without custom names).
+  List<UnknownDeviceEntry> get allUnknownDevices {
+    final knownMacs = allKnownCustomDevices.map((d) => d.macAddress).toSet();
+    final results = <UnknownDeviceEntry>[];
+    final seenKeys = <String>{};
+
+    // 1. Devices in SharedDeviceDatabase without custom names
+    if (SharedDeviceDatabase.instance.isInitialized) {
+      try {
+        final allDbDevices = SharedDeviceDatabase.instance.getAllDevices(hideDefaultNamed: false);
+        for (final dev in allDbDevices) {
+          if (!dev.hasCustomName) {
+            final key = dev.macAddress;
+            if (seenKeys.add(key)) {
+              final isShown = _showAutoDetected || _explicitlyShownMacs.contains(key);
+              results.add(UnknownDeviceEntry(
+                key: key,
+                macAddress: dev.macAddress,
+                displayName: dev.name.isNotEmpty ? dev.name : 'Device ${dev.macAddress}',
+                vendor: dev.vendor,
+                isInDatabase: true,
+                isHidden: !isShown,
+              ));
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    // 2. Active topology nodes without custom names
+    for (final node in _repository.nodes.values) {
+      if (node.isLocalHost) continue;
+      final mac = node.macAddress != null && node.macAddress!.isNotEmpty
+          ? SharedDevice.normalizeMac(node.macAddress!)
+          : null;
+      if (mac != null && knownMacs.contains(mac)) continue;
+
+      final key = mac ?? node.ip;
+      if (seenKeys.add(key)) {
+        final isShown = _showAutoDetected || _explicitlyShownMacs.contains(key);
+        results.add(UnknownDeviceEntry(
+          key: key,
+          macAddress: mac,
+          ip: node.ip,
+          displayName: node.hostname?.isNotEmpty == true
+              ? node.hostname!
+              : (mac != null ? 'Device $mac' : node.ip),
+          vendor: node.vendor,
+          isInDatabase: false,
+          isHidden: !isShown,
+        ));
+      }
+    }
+
+    return results;
+  }
+
+  /// Unknown devices that are unhidden and shown as filter pills.
+  List<UnknownDeviceEntry> get visibleUnknownDevices =>
+      allUnknownDevices.where((d) => !d.isHidden).toList();
+
   /// Returns active auto-detected nodes in current topology that do not have a custom labeled entry
-  /// in visibleSharedDevices and are not hidden. Returns empty if showAutoDetected is false.
+  /// in visibleSharedDevices and are shown.
   List<NetworkNode> get autoDetectedUnlabeledNodes {
-    if (!_showAutoDetected) return const [];
     final labeledMacs = visibleSharedDevices.map((d) => d.macAddress).toSet();
     final seen = <String>{};
     final result = <NetworkNode>[];
@@ -206,7 +283,8 @@ class TopologyViewModel extends ChangeNotifier {
           : null;
       final key = mac ?? node.ip;
       if (mac != null && labeledMacs.contains(mac)) continue;
-      if (_hiddenDeviceMacs.contains(key)) continue;
+      final isShown = _showAutoDetected || _explicitlyShownMacs.contains(key);
+      if (!isShown) continue;
       if (seen.add(key)) {
         result.add(node);
       }
@@ -311,7 +389,9 @@ class TopologyViewModel extends ChangeNotifier {
     try {
       final prefs = await RouteTracerPreferencesService.loadPreferences();
       _showAutoDetected = prefs.showAutoDetected;
-      _hiddenDeviceMacs = prefs.hiddenDeviceMacs;
+      _hiddenDeviceMacs = Set.from(prefs.hiddenDeviceMacs);
+      _explicitlyShownMacs = Set.from(prefs.explicitlyShownMacs);
+      _selectedDeviceKeys = Set.from(prefs.selectedDeviceKeys);
     } catch (_) {}
 
     try {
@@ -364,12 +444,26 @@ class TopologyViewModel extends ChangeNotifier {
     _notify();
   }
 
+  static bool _isVirtualOrVpn(NetworkAdapterInfo a) {
+    final s = '${a.name} ${a.id}'.toLowerCase();
+    return s.contains('tailscale') ||
+        s.contains('docker') ||
+        s.contains('vethernet') ||
+        s.contains('virtual') ||
+        s.contains('vpn') ||
+        s.contains('wireguard') ||
+        s.contains('tap') ||
+        s.contains('tun') ||
+        s.contains('vmware') ||
+        s.contains('hyper-v');
+  }
+
   /// Refreshes network adapter list and retains/picks current selection.
   Future<void> refreshAdapters() async {
     try {
       _adapters = await NetworkAdapterService.getAvailableAdapters();
       if (_adapters.isNotEmpty) {
-        // Select best adapter: non-loopback with valid IP and gateway, or first non-loopback
+        // Select best adapter: physical non-loopback with valid IP and gateway first
         NetworkAdapterInfo? best;
         if (_selectedAdapter != null) {
           best = _adapters.firstWhere(
@@ -378,10 +472,16 @@ class TopologyViewModel extends ChangeNotifier {
           );
         } else {
           best = _adapters.firstWhere(
-            (a) => !a.isLoopback && a.ipAddress != '127.0.0.1' && a.ipAddress != '0.0.0.0' && a.gatewayIp != null,
+            (a) => !a.isLoopback && !_isVirtualOrVpn(a) && a.ipAddress != '127.0.0.1' && a.ipAddress != '0.0.0.0' && a.gatewayIp != null,
             orElse: () => _adapters.firstWhere(
-              (a) => !a.isLoopback && a.ipAddress != '127.0.0.1' && a.ipAddress != '0.0.0.0',
-              orElse: () => _adapters.first,
+              (a) => !a.isLoopback && !_isVirtualOrVpn(a) && a.ipAddress != '127.0.0.1' && a.ipAddress != '0.0.0.0',
+              orElse: () => _adapters.firstWhere(
+                (a) => !a.isLoopback && a.ipAddress != '127.0.0.1' && a.ipAddress != '0.0.0.0' && a.gatewayIp != null,
+                orElse: () => _adapters.firstWhere(
+                  (a) => !a.isLoopback && a.ipAddress != '127.0.0.1' && a.ipAddress != '0.0.0.0',
+                  orElse: () => _adapters.first,
+                ),
+              ),
             ),
           );
         }
@@ -704,15 +804,21 @@ class TopologyViewModel extends ChangeNotifier {
     _notify();
   }
 
-  void setShowAutoDetected(bool value) {
-    if (_showAutoDetected == value) return;
-    _showAutoDetected = value;
+  void _savePreferences() {
     RouteTracerPreferencesService.savePreferences(
       RouteTracerPreferences(
         showAutoDetected: _showAutoDetected,
         hiddenDeviceMacs: _hiddenDeviceMacs,
+        explicitlyShownMacs: _explicitlyShownMacs,
+        selectedDeviceKeys: _selectedDeviceKeys,
       ),
     );
+  }
+
+  void setShowAutoDetected(bool value) {
+    if (_showAutoDetected == value) return;
+    _showAutoDetected = value;
+    _savePreferences();
     _notify();
   }
 
@@ -720,20 +826,65 @@ class TopologyViewModel extends ChangeNotifier {
     final normalized = SharedDevice.isValidMac(macOrKey)
         ? SharedDevice.normalizeMac(macOrKey)
         : macOrKey;
-    if (_hiddenDeviceMacs.contains(normalized)) {
-      _hiddenDeviceMacs = Set.from(_hiddenDeviceMacs)..remove(normalized);
+
+    final isKnown = allKnownCustomDevices.any((d) => d.macAddress == normalized);
+    final isUnknown = allUnknownDevices.any((d) => d.key == normalized || d.macAddress == normalized);
+
+    if (isUnknown && !isKnown) {
+      if (_explicitlyShownMacs.contains(normalized)) {
+        _explicitlyShownMacs = Set.from(_explicitlyShownMacs)..remove(normalized);
+        if (_selectedDeviceKeys.contains(normalized)) {
+          toggleDevicePill(normalized);
+        }
+      } else {
+        _explicitlyShownMacs = Set.from(_explicitlyShownMacs)..add(normalized);
+      }
     } else {
-      _hiddenDeviceMacs = Set.from(_hiddenDeviceMacs)..add(normalized);
-      if (_selectedDeviceKeys.contains(normalized)) {
-        toggleDevicePill(normalized);
+      if (_hiddenDeviceMacs.contains(normalized)) {
+        _hiddenDeviceMacs = Set.from(_hiddenDeviceMacs)..remove(normalized);
+      } else {
+        _hiddenDeviceMacs = Set.from(_hiddenDeviceMacs)..add(normalized);
+        if (_selectedDeviceKeys.contains(normalized)) {
+          toggleDevicePill(normalized);
+        }
       }
     }
-    RouteTracerPreferencesService.savePreferences(
-      RouteTracerPreferences(
-        showAutoDetected: _showAutoDetected,
-        hiddenDeviceMacs: _hiddenDeviceMacs,
-      ),
-    );
+    _savePreferences();
+    _notify();
+  }
+
+  void setDeviceHidden(String key, bool isHidden) {
+    final normalized = SharedDevice.isValidMac(key) ? SharedDevice.normalizeMac(key) : key;
+    final isKnown = allKnownCustomDevices.any((d) => d.macAddress == normalized);
+    final isUnknown = allUnknownDevices.any((d) => d.key == normalized || d.macAddress == normalized);
+
+    if (isUnknown && !isKnown) {
+      if (isHidden) {
+        _explicitlyShownMacs = Set.from(_explicitlyShownMacs)..remove(normalized);
+        if (_selectedDeviceKeys.contains(normalized)) {
+          toggleDevicePill(normalized);
+        }
+      } else {
+        _explicitlyShownMacs = Set.from(_explicitlyShownMacs)..add(normalized);
+      }
+    } else {
+      if (isHidden) {
+        _hiddenDeviceMacs = Set.from(_hiddenDeviceMacs)..add(normalized);
+        if (_selectedDeviceKeys.contains(normalized)) {
+          toggleDevicePill(normalized);
+        }
+      } else {
+        _hiddenDeviceMacs = Set.from(_hiddenDeviceMacs)..remove(normalized);
+      }
+    }
+    _savePreferences();
+    _notify();
+  }
+
+  void unhideAllDevices() {
+    _hiddenDeviceMacs = {};
+    _showAutoDetected = true;
+    _savePreferences();
     _notify();
   }
 
@@ -746,12 +897,14 @@ class TopologyViewModel extends ChangeNotifier {
       current.add(normalized);
     }
     _selectedDeviceKeys = current;
+    _savePreferences();
     _notify();
   }
 
   void clearDeviceFilters() {
     if (_selectedDeviceKeys.isNotEmpty) {
       _selectedDeviceKeys = {};
+      _savePreferences();
       _notify();
     }
   }
@@ -761,6 +914,7 @@ class TopologyViewModel extends ChangeNotifier {
     _ipFilter = '';
     _macFilter = '';
     _selectedDeviceKeys = {};
+    _savePreferences();
     _notify();
   }
 
@@ -770,15 +924,44 @@ class TopologyViewModel extends ChangeNotifier {
     String? category,
     String? vendor,
     String? notes,
+    String? ip,
   }) {
-    _sharedDeviceService.updateDeviceDetails(
-      macAddress,
-      name: name,
-      deviceType: category,
-      vendor: vendor,
-      notes: notes,
-    );
+    final normMac = SharedDevice.isValidMac(macAddress)
+        ? SharedDevice.normalizeMac(macAddress)
+        : macAddress;
+    final existing = _sharedDeviceService.getDeviceByMac(normMac);
+    if (existing != null) {
+      _sharedDeviceService.updateDeviceDetails(
+        normMac,
+        name: name,
+        deviceType: category,
+        vendor: vendor,
+        notes: notes,
+      );
+    } else {
+      _sharedDeviceService.registerDevice(
+        rawMac: normMac,
+        name: name,
+        vendor: vendor,
+        deviceType: category,
+        notes: notes,
+      );
+    }
+    _hiddenDeviceMacs = Set.from(_hiddenDeviceMacs)..remove(normMac);
+    _explicitlyShownMacs = Set.from(_explicitlyShownMacs)..remove(normMac);
+    _savePreferences();
+    if (ip != null && ip.isNotEmpty) {
+      _repository.updateNodeSharedMetadata(
+        ip,
+        name: name,
+        category: category,
+        vendor: vendor,
+        notes: notes,
+        macAddress: normMac,
+      );
+    }
     _syncSharedMetadata();
+    _notify();
   }
 
   void selectNode(String? nodeId) {
@@ -823,6 +1006,23 @@ class TopologyViewModel extends ChangeNotifier {
       _notify();
       return;
     }
+
+    // Clear active selection and filters that would mask or dim newly scanned topology
+    _repository.selectNode(null);
+    _selectedDeviceKeys = {};
+    _ipFilter = '';
+    _macFilter = '';
+    _searchQuery = '';
+
+    // Clear previous graph topology and retain current localhost
+    _repository.clear();
+    _repository.setLocalHost(
+      _selectedAdapter?.ipAddress ?? _repository.localHostIp,
+      gatewayIp: _selectedAdapter?.gatewayIp ?? gatewayIp,
+      macAddress: _selectedAdapter?.macAddress,
+      vendor: _selectedAdapter?.vendor,
+      sharedName: _repository.nodes[_repository.localHostIp]?.sharedDeviceName,
+    );
 
     final totalExpected = IcmpService.calculateTargetCount(_targetInput);
     if (totalExpected > AppConstants.maxSweepHosts) {
@@ -879,7 +1079,11 @@ class TopologyViewModel extends ChangeNotifier {
       final arpDiscovered = _cachedArp.keys.where((ip) => targetSet.contains(ip)).toList();
       if (arpDiscovered.isNotEmpty) {
         liveHosts = arpDiscovered;
-      } else if (targetIps.length <= 16) {
+      }
+      if (gatewayIp != null && targetSet.contains(gatewayIp!) && !liveHosts.contains(gatewayIp!)) {
+        liveHosts.add(gatewayIp!);
+      }
+      if (liveHosts.isEmpty && targetIps.length <= 32) {
         liveHosts = targetIps;
       }
     }
@@ -1008,10 +1212,11 @@ class TopologyViewModel extends ChangeNotifier {
     String? vendor,
     String? notes,
   }) {
-    final existing = _sharedDeviceService.getDeviceByMac(rawMac);
+    final normMac = SharedDevice.isValidMac(rawMac) ? SharedDevice.normalizeMac(rawMac) : rawMac;
+    final existing = _sharedDeviceService.getDeviceByMac(normMac);
     if (existing != null) {
       _sharedDeviceService.updateDeviceDetails(
-        rawMac,
+        normMac,
         name: name,
         deviceType: category,
         vendor: vendor,
@@ -1019,7 +1224,7 @@ class TopologyViewModel extends ChangeNotifier {
       );
     } else {
       _sharedDeviceService.registerDevice(
-        rawMac: rawMac,
+        rawMac: normMac,
         name: name,
         vendor: vendor,
         deviceType: category,
@@ -1027,13 +1232,17 @@ class TopologyViewModel extends ChangeNotifier {
       );
     }
 
+    _hiddenDeviceMacs = Set.from(_hiddenDeviceMacs)..remove(normMac);
+    _explicitlyShownMacs = Set.from(_explicitlyShownMacs)..remove(normMac);
+    _savePreferences();
+
     _repository.updateNodeSharedMetadata(
       ip,
       name: name,
       category: category,
       vendor: vendor,
       notes: notes,
-      macAddress: rawMac,
+      macAddress: normMac,
     );
 
     _notify();
@@ -1050,7 +1259,7 @@ class TopologyViewModel extends ChangeNotifier {
       _repository.ingestTraceResult(trace);
     }
 
-    // Populate demo devices into shared device database if database is open
+    // Populate local node metadata for demo presentation (isolated from SharedDeviceDatabase)
     for (final entry in DemoDataGenerator.demoDeviceCatalog.entries) {
       final ip = entry.key;
       final data = entry.value;
@@ -1059,16 +1268,6 @@ class TopologyViewModel extends ChangeNotifier {
       final vendor = data['vendor']!;
       final type = data['type']!;
       final notes = data['notes']!;
-
-      if (_isSharedDbConnected) {
-        _sharedDeviceService.registerDevice(
-          rawMac: mac,
-          name: name,
-          vendor: vendor,
-          deviceType: type,
-          notes: notes,
-        );
-      }
 
       _repository.updateNodeSharedMetadata(
         ip,

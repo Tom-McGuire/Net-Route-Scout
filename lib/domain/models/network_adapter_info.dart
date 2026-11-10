@@ -24,8 +24,7 @@ class NetworkAdapterInfo {
   });
 
   String get displayName {
-    final macPart = macAddress != null && macAddress!.isNotEmpty ? ' • $macAddress' : '';
-    return '$name ($ipAddress$macPart)';
+    return '$name ($ipAddress)';
   }
 
   String get shortDisplayName {

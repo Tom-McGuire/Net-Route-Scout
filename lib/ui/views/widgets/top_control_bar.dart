@@ -4,6 +4,7 @@ import 'package:net_route_scout/core/constants.dart';
 import 'package:net_route_scout/domain/models/network_adapter_info.dart';
 import 'package:net_route_scout/ui/view_models/topology_view_model.dart';
 import 'package:provider/provider.dart';
+import 'device_library_dialog.dart';
 
 class TopControlBar extends StatefulWidget {
   const TopControlBar({super.key});
@@ -101,6 +102,9 @@ class _TopControlBarState extends State<TopControlBar> {
                 if (isScanning) {
                   vm.cancelSweep();
                 } else {
+                  if (_targetController.text.trim().isNotEmpty) {
+                    vm.setTargetInput(_targetController.text.trim());
+                  }
                   vm.startSweep();
                 }
               },
@@ -275,30 +279,7 @@ class _TopControlBarState extends State<TopControlBar> {
               ),
               const SizedBox(width: 4),
             ],
-            _buildPresetChip(
-              label: '8.8.8.8',
-              tooltip: 'Trace to Google DNS',
-              onTap: isScanning
-                  ? null
-                  : () {
-                      _targetController.text = '8.8.8.8';
-                      _lastSyncedTarget = '8.8.8.8';
-                      vm.setTargetInput('8.8.8.8');
-                    },
-            ),
-            const SizedBox(width: 4),
-            _buildPresetChip(
-              label: '1.1.1.1',
-              tooltip: 'Trace to Cloudflare DNS',
-              onTap: isScanning
-                  ? null
-                  : () {
-                      _targetController.text = '1.1.1.1';
-                      _lastSyncedTarget = '1.1.1.1';
-                      vm.setTargetInput('1.1.1.1');
-                    },
-            ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 8),
 
             // 6. Concurrency Selector (Workers)
             Container(
@@ -362,12 +343,25 @@ class _TopControlBarState extends State<TopControlBar> {
               style: OutlinedButton.styleFrom(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                 side: const BorderSide(color: Color(0xFF3E3E42)),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                shape: const StadiumBorder(),
               ),
             ),
-            const SizedBox(width: 6),
+            const SizedBox(width: 8),
 
-            // 9. Clear Button
+            // 9. Custom Library Button (Matching Syslog Server & Packet Inspector)
+            OutlinedButton.icon(
+              onPressed: () => DeviceLibraryDialog.show(context),
+              icon: const Icon(Icons.menu_book, size: 14, color: Color(0xFF60A5FA)),
+              label: const Text('Custom Library', style: TextStyle(fontSize: 12)),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                side: const BorderSide(color: Color(0xFF3E3E42)),
+                shape: const StadiumBorder(),
+              ),
+            ),
+            const SizedBox(width: 8),
+
+            // 10. Clear Button
             OutlinedButton.icon(
               onPressed: (isScanning || vm.nodes.length <= 1) ? null : vm.clearGraph,
               icon: const Icon(Icons.delete_outline, size: 15),
@@ -376,10 +370,10 @@ class _TopControlBarState extends State<TopControlBar> {
                 foregroundColor: Colors.red.shade300,
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                 side: const BorderSide(color: Color(0xFF3E3E42)),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                shape: const StadiumBorder(),
               ),
             ),
-            const SizedBox(width: 6),
+            const SizedBox(width: 8),
 
             // 10. Export Menu
             PopupMenuButton<String>(
@@ -460,69 +454,6 @@ class _TopControlBarState extends State<TopControlBar> {
                     icon: Icons.vertical_split_outlined,
                     tooltip: 'Split View',
                     isSelected: vm.viewMode == TopologyViewMode.split,
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 10),
-
-            // 12. Local Host Info Pill
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
-              decoration: BoxDecoration(
-                color: const Color(0xFF252526),
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: const Color(0xFF3E3E42)),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.laptop, size: 13, color: AppTheme.hostLocal),
-                  const SizedBox(width: 5),
-                  Text(
-                    'Host: ${vm.localHostIp}${vm.selectedAdapter?.macAddress != null && vm.selectedAdapter!.macAddress!.isNotEmpty ? '  [${vm.selectedAdapter!.macAddress}]' : ''}',
-                    style: const TextStyle(
-                      fontSize: 10.5,
-                      fontFamily: 'monospace',
-                      color: Colors.white70,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 6),
-
-            // 13. Shared Device Database Status Pill
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
-              decoration: BoxDecoration(
-                color: vm.isSharedDbConnected
-                    ? const Color(0xFF10B981).withValues(alpha: 0.15)
-                    : const Color(0xFFF59E0B).withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(
-                  color: vm.isSharedDbConnected
-                      ? const Color(0xFF10B981).withValues(alpha: 0.4)
-                      : const Color(0xFFF59E0B).withValues(alpha: 0.4),
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    vm.isSharedDbConnected ? Icons.storage : Icons.storage_outlined,
-                    size: 12,
-                    color: vm.isSharedDbConnected ? const Color(0xFF10B981) : const Color(0xFFF59E0B),
-                  ),
-                  const SizedBox(width: 5),
-                  Text(
-                    vm.isSharedDbConnected ? 'SHARED DB' : 'STANDALONE',
-                    style: TextStyle(
-                      fontSize: 9.5,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 0.5,
-                      color: vm.isSharedDbConnected ? const Color(0xFF10B981) : const Color(0xFFF59E0B),
-                    ),
                   ),
                 ],
               ),

@@ -7,9 +7,11 @@ import 'package:net_route_scout/domain/models/network_node.dart';
 import 'package:net_route_scout/ui/view_models/topology_view_model.dart';
 import 'package:net_route_scout/ui/views/widgets/alert_banner.dart';
 import 'package:net_route_scout/ui/views/widgets/detail_inspector_panel.dart';
+import 'package:net_route_scout/ui/views/widgets/device_library_dialog.dart';
 import 'package:net_route_scout/ui/views/widgets/edit_device_dialog.dart';
 import 'package:net_route_scout/ui/views/widgets/filter_toolbar.dart';
 import 'package:net_route_scout/ui/views/widgets/route_table_view.dart';
+import 'package:net_route_scout/ui/views/widgets/top_control_bar.dart';
 
 Widget createTestApp(Widget child, TopologyViewModel vm) {
   return MaterialApp(
@@ -307,6 +309,80 @@ void main() {
       await tester.tap(pillFinder.first);
       await tester.pumpAndSettle();
       expect(vm.selectedDeviceKeys.length, 1);
+    });
+  });
+
+  group('TopControlBar Widget Tests', () {
+    testWidgets('Renders buttons and controls according to updated Syslog Server styling', (tester) async {
+      tester.view.physicalSize = const Size(1600, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() => tester.view.resetPhysicalSize());
+
+      final vm = TopologyViewModel(repository: TopologyRepository(), autoInit: false);
+
+      await tester.pumpWidget(createTestApp(const TopControlBar(), vm));
+      await tester.pumpAndSettle();
+
+      // Verify Start Sweep is present
+      expect(find.text('Start Sweep'), findsOneWidget);
+
+      // Verify Demo Network, Custom Library, and Clear are present
+      expect(find.text('Demo Network'), findsOneWidget);
+      expect(find.text('Custom Library'), findsOneWidget);
+      expect(find.text('Clear'), findsOneWidget);
+
+      // Verify 8.8.8.8 and 1.1.1.1 preset chips are removed
+      expect(find.text('8.8.8.8'), findsNothing);
+      expect(find.text('1.1.1.1'), findsNothing);
+
+      // Verify Host: and SHARED DB status pills are removed
+      expect(find.textContaining('Host: '), findsNothing);
+      expect(find.text('SHARED DB'), findsNothing);
+    });
+  });
+
+  group('DeviceLibraryDialog Widget Tests', () {
+    testWidgets('Opens dialog with 2 tabs for Known and Unknown devices', (tester) async {
+      tester.view.physicalSize = const Size(1600, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() => tester.view.resetPhysicalSize());
+
+      final vm = TopologyViewModel(repository: TopologyRepository(), autoInit: false);
+      vm.loadDemoTopology();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.darkTheme(),
+          home: Scaffold(
+            body: ChangeNotifierProvider<TopologyViewModel>.value(
+              value: vm,
+              child: const DeviceLibraryDialog(),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Check Dialog Title & Subtitle
+      expect(find.text('Custom Library'), findsOneWidget);
+      expect(find.textContaining('Manage known and unknown devices'), findsOneWidget);
+
+      // Check TabBar with Known and Unknown tabs
+      expect(find.textContaining('Known Devices'), findsOneWidget);
+      expect(find.textContaining('Unknown Devices'), findsOneWidget);
+
+      // Check Add Device button
+      expect(find.text('Add Device'), findsOneWidget);
+
+      // Verify Known Devices tab displays empty state when DB not populated
+      expect(find.text('No known devices with custom names in database.'), findsOneWidget);
+
+      // Tap on Unknown Devices tab
+      await tester.tap(find.textContaining('Unknown Devices'));
+      await tester.pumpAndSettle();
+
+      // Verify Unknown Devices tab displays nodes from demo topology
+      expect(find.textContaining('10.0.1.'), findsWidgets);
     });
   });
 }

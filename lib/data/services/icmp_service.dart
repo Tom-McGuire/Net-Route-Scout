@@ -48,6 +48,18 @@ class IcmpService {
     return true;
   }
 
+  /// Checks if two IPv4 addresses share the same /24 subnet prefix.
+  static bool isSameSubnet(String ip1, String ip2) {
+    try {
+      final p1 = ip1.trim().split('.');
+      final p2 = ip2.trim().split('.');
+      if (p1.length != 4 || p2.length != 4) return false;
+      return p1[0] == p2[0] && p1[1] == p2[1] && p1[2] == p2[2];
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Converts IPv4 to 32-bit unsigned integer.
   static int ipv4ToInt(String ip) {
     final parts = ip.split('.').map(int.parse).toList();
@@ -191,14 +203,22 @@ class IcmpService {
         args.addAll(['-n', '1', '-w', '$timeoutMs', ip]);
       } else if (Platform.isMacOS) {
         args.addAll(['-c', '1', '-W', '$timeoutMs']);
-        if (sourceIp != null && sourceIp.isNotEmpty && sourceIp != '0.0.0.0' && !sourceIp.startsWith('127.')) {
+        if (sourceIp != null &&
+            sourceIp.isNotEmpty &&
+            sourceIp != '0.0.0.0' &&
+            !sourceIp.startsWith('127.') &&
+            isSameSubnet(sourceIp, ip)) {
           args.addAll(['-S', sourceIp]);
         }
         args.add(ip);
       } else {
         // Linux: ping -c 1 -W 1 [-I <source>] <ip>
         args.addAll(['-c', '1', '-W', '1']);
-        if (sourceIp != null && sourceIp.isNotEmpty && sourceIp != '0.0.0.0' && !sourceIp.startsWith('127.')) {
+        if (sourceIp != null &&
+            sourceIp.isNotEmpty &&
+            sourceIp != '0.0.0.0' &&
+            !sourceIp.startsWith('127.') &&
+            isSameSubnet(sourceIp, ip)) {
           args.addAll(['-I', sourceIp]);
         }
         args.add(ip);
