@@ -1,7 +1,7 @@
 class AppConstants {
   static const String appTitle = 'Net Route Scout';
   static const String appSubtitle = 'Visual Multi-Hop Network Topology & Traceroute Mapper';
-  static const String appVersion = 'v0.7.0.Beta';
+  static const String appVersion = 'v0.7.2.Beta';
   static const String sourceAppName = 'net-route-scout';
 
   static const int defaultConcurrency = 4;

@@ -326,10 +326,11 @@ void main() {
       // Verify Start Sweep is present
       expect(find.text('Start Sweep'), findsOneWidget);
 
-      // Verify Demo Network, Custom Library, and Clear are present
-      expect(find.text('Demo Network'), findsOneWidget);
-      expect(find.text('Custom Library'), findsOneWidget);
+      // Verify Load Demo, Device Library, and Clear are present
+      expect(find.text('Load Demo'), findsOneWidget);
+      expect(find.text('Device Library'), findsOneWidget);
       expect(find.text('Clear'), findsOneWidget);
+      expect(find.text('Export'), findsOneWidget);
 
       // Verify 8.8.8.8 and 1.1.1.1 preset chips are removed
       expect(find.text('8.8.8.8'), findsNothing);

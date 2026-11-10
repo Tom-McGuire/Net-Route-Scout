@@ -15,20 +15,20 @@ void main() {
     await tester.pumpAndSettle();
 
     // Verify Title & Subtitle
-    expect(find.text('Net Route Scout'), findsOneWidget);
+    expect(find.text('NET ROUTE SCOUT'), findsOneWidget);
     expect(find.text('Visual Network Topology Mapper'), findsOneWidget);
 
     // Verify Controls & Buttons
-    expect(find.text('Demo Network'), findsOneWidget);
+    expect(find.text('Load Demo'), findsOneWidget);
     expect(find.text('Start Sweep'), findsOneWidget);
     expect(find.byIcon(Icons.radar), findsWidgets);
 
     // Verify Empty State is visible initially
     expect(find.text('No Network Routes Traced'), findsOneWidget);
 
-    // Click Demo Network
-    await tester.ensureVisible(find.text('Demo Network'));
-    await tester.tap(find.text('Demo Network'));
+    // Click Load Demo
+    await tester.ensureVisible(find.text('Load Demo'));
+    await tester.tap(find.text('Load Demo'));
     await tester.pumpAndSettle();
 
     // Verify Demo network loaded nodes
