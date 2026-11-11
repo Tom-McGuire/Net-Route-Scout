@@ -12,6 +12,11 @@ class TopologyRepository {
   final Map<String, NetworkEdge> _edges = HashMap<String, NetworkEdge>();
   final List<TraceResult> _traces = [];
 
+  // Custom Switch State & Overrides
+  final Set<String> _customSwitchNodeIds = <String>{};
+  final Map<String, String> _customSwitchLinks = <String, String>{}; // childNodeId -> parentSwitchId
+  final Map<String, String> _customSwitchPorts = <String, String>{}; // childNodeId -> portLabel
+
   String _localHostIp = '127.0.0.1';
   String? _localHostMac;
   String? _localHostVendor;
@@ -22,6 +27,9 @@ class TopologyRepository {
   Map<String, NetworkNode> get nodes => UnmodifiableMapView(_nodes);
   Map<String, NetworkEdge> get edges => UnmodifiableMapView(_edges);
   List<TraceResult> get traces => List.unmodifiable(_traces);
+  Set<String> get customSwitchNodeIds => UnmodifiableSetView(_customSwitchNodeIds);
+  Map<String, String> get customSwitchLinks => UnmodifiableMapView(_customSwitchLinks);
+  Map<String, String> get customSwitchPorts => UnmodifiableMapView(_customSwitchPorts);
   String get localHostIp => _localHostIp;
   String? get localHostMac => _localHostMac;
   String? get gatewayIp => _gatewayIp;
@@ -221,6 +229,11 @@ class TopologyRepository {
 
     // Add target to root local host targets set
     _nodes[_localHostIp]?.associatedTargets.add(trace.targetIp);
+
+    // Ensure custom switch edges remain applied over incoming trace hops
+    if (_customSwitchLinks.isNotEmpty) {
+      reapplyCustomSwitchEdges();
+    }
   }
 
   /// Updates node details with ARP cache information and Shared Device Database data.
@@ -401,5 +414,274 @@ class TopologyRepository {
 
     final reversed = path.reversed.toList();
     return reversed.map((id) => _nodes[id]).whereType<NetworkNode>().toList();
+  }
+
+  // ==========================================
+  // SWITCH TOPOLOGY MANIPULATION & REDRAW
+  // ==========================================
+
+  void restoreCustomSwitches({
+    required Set<String> switchNodeIds,
+    required Map<String, String> switchLinks,
+    required Map<String, String> switchPorts,
+  }) {
+    _customSwitchNodeIds.clear();
+    _customSwitchNodeIds.addAll(switchNodeIds);
+    _customSwitchLinks.clear();
+    _customSwitchLinks.addAll(switchLinks);
+    _customSwitchPorts.clear();
+    _customSwitchPorts.addAll(switchPorts);
+
+    // Apply isSwitchNode and ports to existing nodes
+    for (final id in _customSwitchNodeIds) {
+      final node = _nodes[id];
+      if (node != null) {
+        _nodes[id] = node.copyWith(isSwitchNode: true, deviceCategoryKey: 'switch');
+      }
+    }
+
+    for (final entry in _customSwitchLinks.entries) {
+      final childId = entry.key;
+      final switchId = entry.value;
+      final node = _nodes[childId];
+      if (node != null) {
+        _nodes[childId] = node.copyWith(
+          connectedSwitchId: switchId,
+          switchPort: _customSwitchPorts[childId],
+        );
+      }
+    }
+
+    reapplyCustomSwitchEdges();
+  }
+
+  void defineNodeAsSwitch(String nodeId, {bool isSwitch = true, String? name}) {
+    final node = _nodes[nodeId];
+    if (node == null) return;
+
+    if (isSwitch) {
+      _customSwitchNodeIds.add(nodeId);
+      _nodes[nodeId] = node.copyWith(
+        isSwitchNode: true,
+        deviceCategoryKey: 'switch',
+        sharedDeviceName: name ?? node.sharedDeviceName,
+      );
+    } else {
+      _customSwitchNodeIds.remove(nodeId);
+      // Disconnect any children that were attached to this switch
+      final childrenToDisconnect = _customSwitchLinks.entries
+          .where((e) => e.value == nodeId)
+          .map((e) => e.key)
+          .toList();
+      for (final childId in childrenToDisconnect) {
+        disconnectNodeFromSwitch(childId);
+      }
+      _nodes[nodeId] = node.copyWith(
+        isSwitchNode: false,
+        deviceCategoryKey: node.deviceCategoryKey == 'switch' ? 'other' : node.deviceCategoryKey,
+      );
+    }
+
+    reapplyCustomSwitchEdges();
+  }
+
+  NetworkNode addStandaloneSwitch({
+    required String name,
+    String? ip,
+    String? mac,
+    String? model,
+    String? upstreamNodeId,
+  }) {
+    final switchId = ip ?? 'switch_${DateTime.now().millisecondsSinceEpoch}';
+    final switchIp = ip ?? switchId;
+
+    final switchNode = NetworkNode(
+      id: switchId,
+      ip: switchIp,
+      hostname: model ?? name,
+      sharedDeviceName: name,
+      macAddress: mac,
+      vendor: model,
+      hopDepth: 2,
+      isSwitchNode: true,
+      deviceCategoryKey: 'switch',
+      switchModel: model,
+      associatedTargets: {},
+    );
+
+    _nodes[switchId] = switchNode;
+    _customSwitchNodeIds.add(switchId);
+
+    // Determine upstream anchor
+    final upstream = upstreamNodeId ?? (_gatewayIp != null && _nodes.containsKey(_gatewayIp) ? _gatewayIp! : _localHostIp);
+    _edges['$upstream->$switchId'] = NetworkEdge(
+      sourceIp: upstream,
+      targetIp: switchId,
+      targetRoutes: {},
+    );
+
+    reapplyCustomSwitchEdges();
+    return switchNode;
+  }
+
+  void connectNodeToSwitch(String childNodeId, String switchNodeId, {String? portLabel}) {
+    if (!_nodes.containsKey(childNodeId) || !_nodes.containsKey(switchNodeId)) return;
+    if (childNodeId == switchNodeId) return; // Prevent self-loop
+
+    _customSwitchLinks[childNodeId] = switchNodeId;
+    if (portLabel != null && portLabel.isNotEmpty) {
+      _customSwitchPorts[childNodeId] = portLabel;
+    } else {
+      _customSwitchPorts.remove(childNodeId);
+    }
+
+    final child = _nodes[childNodeId]!;
+    _nodes[childNodeId] = child.copyWith(
+      connectedSwitchId: switchNodeId,
+      switchPort: portLabel,
+    );
+
+    reapplyCustomSwitchEdges();
+  }
+
+  void disconnectNodeFromSwitch(String childNodeId) {
+    _customSwitchLinks.remove(childNodeId);
+    _customSwitchPorts.remove(childNodeId);
+
+    final child = _nodes[childNodeId];
+    if (child != null) {
+      _nodes[childNodeId] = child.copyWith(
+        clearConnectedSwitch: true,
+        clearSwitchPort: true,
+      );
+    }
+
+    // Reconstruct default traceroute edge for childNodeId
+    _rebuildDefaultInboundEdge(childNodeId);
+    reapplyCustomSwitchEdges();
+  }
+
+  void _rebuildDefaultInboundEdge(String targetId) {
+    // Remove existing inbound edges to targetId
+    _edges.removeWhere((_, e) => e.targetIp == targetId);
+
+    // Try finding predecessor from traces
+    for (final trace in _traces) {
+      var prev = _localHostIp;
+      for (final hop in trace.hops) {
+        if (hop.ip == targetId) {
+          _edges['$prev->$targetId'] = NetworkEdge(
+            sourceIp: prev,
+            targetIp: targetId,
+            targetRoutes: {trace.targetIp},
+          );
+          return;
+        }
+        prev = hop.ip;
+      }
+    }
+
+    // Fallback: connect to gateway or host
+    final fallback = (_gatewayIp != null && _nodes.containsKey(_gatewayIp)) ? _gatewayIp! : _localHostIp;
+    if (targetId != fallback) {
+      _edges['$fallback->$targetId'] = NetworkEdge(
+        sourceIp: fallback,
+        targetIp: targetId,
+        targetRoutes: {targetId},
+      );
+    }
+  }
+
+  void reapplyCustomSwitchEdges() {
+    for (final entry in _customSwitchLinks.entries) {
+      final childId = entry.key;
+      final switchId = entry.value;
+
+      if (!_nodes.containsKey(childId) || !_nodes.containsKey(switchId)) continue;
+
+      // Ensure switch has an upstream connection if orphan
+      if (!_edges.values.any((e) => e.targetIp == switchId) && switchId != _localHostIp) {
+        final upstream = (_gatewayIp != null && _nodes.containsKey(_gatewayIp) && _gatewayIp != switchId)
+            ? _gatewayIp!
+            : _localHostIp;
+        _edges['$upstream->$switchId'] = NetworkEdge(
+          sourceIp: upstream,
+          targetIp: switchId,
+          targetRoutes: {},
+        );
+      }
+
+      // Collect existing target routes of child
+      final existingRoutes = <String>{childId};
+      final oldInbounds = _edges.entries.where((e) => e.value.targetIp == childId).toList();
+      for (final e in oldInbounds) {
+        existingRoutes.addAll(e.value.targetRoutes);
+        _edges.remove(e.key);
+      }
+
+      // Add edge switchId -> childId
+      _edges['$switchId->$childId'] = NetworkEdge(
+        sourceIp: switchId,
+        targetIp: childId,
+        targetRoutes: existingRoutes,
+      );
+
+      // Propagate target route upwards
+      var curr = switchId;
+      while (curr != _localHostIp) {
+        String? parent;
+        for (final edge in _edges.values) {
+          if (edge.targetIp == curr) {
+            edge.targetRoutes.addAll(existingRoutes);
+            parent = edge.sourceIp;
+            break;
+          }
+        }
+        if (parent == null || parent == curr) break;
+        curr = parent;
+      }
+    }
+  }
+
+  /// Calculates dynamic topological depths so parent nodes always render
+  /// to the left of their child nodes in the visual layout.
+  Map<String, int> computeTopologicalDepths() {
+    final depths = <String, int>{};
+    if (_nodes.containsKey(_localHostIp)) {
+      depths[_localHostIp] = 0;
+    }
+
+    // Multi-pass longest-path calculation for DAG
+    bool changed = true;
+    int iterations = 0;
+    const maxIterations = 50;
+
+    while (changed && iterations < maxIterations) {
+      changed = false;
+      iterations++;
+
+      for (final edge in _edges.values) {
+        final srcDepth = depths[edge.sourceIp] ?? (_nodes[edge.sourceIp]?.hopDepth ?? 0);
+        final currentTargetDepth = depths[edge.targetIp];
+        final newTargetDepth = srcDepth + 1;
+
+        if (currentTargetDepth == null || newTargetDepth > currentTargetDepth) {
+          depths[edge.targetIp] = newTargetDepth;
+          changed = true;
+        }
+      }
+    }
+
+    // For any unvisited nodes, fallback to their default hopDepth
+    for (final node in _nodes.values) {
+      depths.putIfAbsent(node.id, () => node.hopDepth);
+    }
+
+    return depths;
+  }
+
+  int getEffectiveDepth(String nodeId) {
+    final allDepths = computeTopologicalDepths();
+    return allDepths[nodeId] ?? (_nodes[nodeId]?.hopDepth ?? 1);
   }
 }

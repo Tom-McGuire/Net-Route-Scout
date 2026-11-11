@@ -5,6 +5,7 @@ import 'package:net_route_scout/domain/models/network_adapter_info.dart';
 import 'package:net_route_scout/ui/view_models/topology_view_model.dart';
 import 'package:provider/provider.dart';
 import 'device_library_dialog.dart';
+import 'snmp_discovery_dialog.dart';
 
 class TopControlBar extends StatefulWidget {
   const TopControlBar({super.key});
@@ -361,6 +362,18 @@ class _TopControlBarState extends State<TopControlBar> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         // ==================== ZONE 4: ECOSYSTEM & DEMO ====================
+                        OutlinedButton.icon(
+                          onPressed: () => SnmpDiscoveryDialog.show(context, vm),
+                          icon: const Icon(Icons.sensors, size: 15, color: Color(0xFF06B6D4)),
+                          label: const Text('SNMP Switch', style: TextStyle(fontSize: 11, color: Color(0xFF06B6D4))),
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(color: Color(0xFF06B6D4)),
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+
                         OutlinedButton.icon(
                           onPressed: () => DeviceLibraryDialog.show(context),
                           icon: const Icon(Icons.devices, size: 15),

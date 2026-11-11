@@ -392,6 +392,11 @@ class TopologyViewModel extends ChangeNotifier {
       _hiddenDeviceMacs = Set.from(prefs.hiddenDeviceMacs);
       _explicitlyShownMacs = Set.from(prefs.explicitlyShownMacs);
       _selectedDeviceKeys = Set.from(prefs.selectedDeviceKeys);
+      _repository.restoreCustomSwitches(
+        switchNodeIds: prefs.customSwitchNodeIds,
+        switchLinks: prefs.customSwitchLinks,
+        switchPorts: prefs.customSwitchPorts,
+      );
     } catch (_) {}
 
     try {
@@ -811,8 +816,76 @@ class TopologyViewModel extends ChangeNotifier {
         hiddenDeviceMacs: _hiddenDeviceMacs,
         explicitlyShownMacs: _explicitlyShownMacs,
         selectedDeviceKeys: _selectedDeviceKeys,
+        customSwitchNodeIds: _repository.customSwitchNodeIds,
+        customSwitchLinks: _repository.customSwitchLinks,
+        customSwitchPorts: _repository.customSwitchPorts,
       ),
     );
+  }
+
+  // ==========================================
+  // SWITCH TOPOLOGY MANIPULATION
+  // ==========================================
+
+  int getEffectiveNodeDepth(String nodeId) => _repository.getEffectiveDepth(nodeId);
+
+  List<NetworkNode> get availableSwitches =>
+      _repository.nodes.values.where((n) => n.isSwitch).toList();
+
+  void defineNodeAsSwitch(String nodeId, {bool isSwitch = true, String? name}) {
+    _repository.defineNodeAsSwitch(nodeId, isSwitch: isSwitch, name: name);
+    final node = _repository.nodes[nodeId];
+    if (node != null && node.macAddress != null && node.macAddress!.isNotEmpty) {
+      if (isSwitch) {
+        _sharedDeviceService.registerDevice(
+          rawMac: node.macAddress!,
+          name: name ?? node.displayName,
+          deviceType: 'switch',
+          vendor: node.vendor,
+        );
+      }
+    }
+    _savePreferences();
+    _notify();
+  }
+
+  NetworkNode addStandaloneSwitch({
+    required String name,
+    String? ip,
+    String? mac,
+    String? model,
+    String? upstreamNodeId,
+  }) {
+    final sw = _repository.addStandaloneSwitch(
+      name: name,
+      ip: ip,
+      mac: mac,
+      model: model,
+      upstreamNodeId: upstreamNodeId,
+    );
+    if (mac != null && mac.isNotEmpty) {
+      _sharedDeviceService.registerDevice(
+        rawMac: mac,
+        name: name,
+        deviceType: 'switch',
+        vendor: model,
+      );
+    }
+    _savePreferences();
+    _notify();
+    return sw;
+  }
+
+  void connectNodeToSwitch(String childNodeId, String switchNodeId, {String? portLabel}) {
+    _repository.connectNodeToSwitch(childNodeId, switchNodeId, portLabel: portLabel);
+    _savePreferences();
+    _notify();
+  }
+
+  void disconnectNodeFromSwitch(String childNodeId) {
+    _repository.disconnectNodeFromSwitch(childNodeId);
+    _savePreferences();
+    _notify();
   }
 
   void setShowAutoDetected(bool value) {
@@ -1278,6 +1351,21 @@ class TopologyViewModel extends ChangeNotifier {
         macAddress: mac,
       );
     }
+
+    // Configure demo switch hierarchy (Core/Distribution switch -> Access switch -> Endpoints)
+    _repository.defineNodeAsSwitch('10.0.2.1', isSwitch: true, name: 'Engineering Distribution Switch');
+    _repository.connectNodeToSwitch('10.0.2.20', '10.0.2.1', portLabel: 'Port 1 (DevOps)');
+    _repository.connectNodeToSwitch('10.0.2.55', '10.0.2.1', portLabel: 'Port 10 (10GbE NAS)');
+
+    final accessSwitch = _repository.addStandaloneSwitch(
+      name: 'Floor 2 Access Switch',
+      ip: '10.0.2.2',
+      model: 'Aruba 2930F 24G PoE+',
+      upstreamNodeId: '10.0.2.1',
+    );
+    _repository.connectNodeToSwitch(accessSwitch.id, '10.0.2.1', portLabel: 'Uplink 1/24');
+    _repository.connectNodeToSwitch('10.0.2.101', accessSwitch.id, portLabel: 'Port 5 (MacBook)');
+    _repository.connectNodeToSwitch('10.0.2.215', accessSwitch.id, portLabel: 'Port 12 (Conf TV)');
 
     _scanProgress = ScanProgress(
       phase: 'Demo Topology Loaded (${_repository.nodes.length} nodes, ${_repository.edges.length} edges)',

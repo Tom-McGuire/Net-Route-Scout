@@ -142,7 +142,24 @@ class DetailInspectorPanel extends StatelessWidget {
                 const SizedBox(height: 8),
 
                 // Metadata Details Grid
-                _buildMetaRow('Hop Depth', node.isLocalHost ? 'Host Machine' : 'Hop ${node.hopDepth}'),
+                _buildMetaRow('Hop Depth', node.isLocalHost ? 'Host Machine' : (node.isSwitch ? 'Switch (Effective Depth ${vm.getEffectiveNodeDepth(node.id)})' : 'Hop ${node.hopDepth}')),
+                if (node.isSwitch) ...[
+                  _buildMetaRow('Device Type', 'Layer 2 Network Switch'),
+                  if (node.switchModel != null && node.switchModel!.isNotEmpty)
+                    _buildMetaRow('Hardware Model', node.switchModel!),
+                  _buildMetaRow(
+                    'Downstream Ports',
+                    '${vm.nodes.values.where((n) => n.connectedSwitchId == node.id).length} devices connected',
+                  ),
+                ],
+                if (node.connectedSwitchId != null) ...[
+                  _buildMetaRow(
+                    'Connected Switch',
+                    vm.nodes[node.connectedSwitchId]?.displayName ?? node.connectedSwitchId!,
+                  ),
+                  if (node.switchPort != null && node.switchPort!.isNotEmpty)
+                    _buildMetaRow('Physical Port', node.switchPort!),
+                ],
                 _buildMetaRow('MAC Address', node.macAddress ?? 'Unresolved (L3 Routed)'),
                 _buildMetaRow('Vendor / OUI', node.vendor ?? 'Unknown Vendor'),
                 _buildMetaRow(

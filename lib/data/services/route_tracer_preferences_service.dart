@@ -9,24 +9,40 @@ class RouteTracerPreferences {
     this.hiddenDeviceMacs = const {},
     this.explicitlyShownMacs = const {},
     this.selectedDeviceKeys = const {},
+    this.customSwitchNodeIds = const {},
+    this.customSwitchLinks = const {},
+    this.customSwitchPorts = const {},
+    this.lastSnmpCommunity = 'public',
   });
 
   final bool showAutoDetected;
   final Set<String> hiddenDeviceMacs;
   final Set<String> explicitlyShownMacs;
   final Set<String> selectedDeviceKeys;
+  final Set<String> customSwitchNodeIds;
+  final Map<String, String> customSwitchLinks;
+  final Map<String, String> customSwitchPorts;
+  final String lastSnmpCommunity;
 
   RouteTracerPreferences copyWith({
     bool? showAutoDetected,
     Set<String>? hiddenDeviceMacs,
     Set<String>? explicitlyShownMacs,
     Set<String>? selectedDeviceKeys,
+    Set<String>? customSwitchNodeIds,
+    Map<String, String>? customSwitchLinks,
+    Map<String, String>? customSwitchPorts,
+    String? lastSnmpCommunity,
   }) {
     return RouteTracerPreferences(
       showAutoDetected: showAutoDetected ?? this.showAutoDetected,
       hiddenDeviceMacs: hiddenDeviceMacs ?? this.hiddenDeviceMacs,
       explicitlyShownMacs: explicitlyShownMacs ?? this.explicitlyShownMacs,
       selectedDeviceKeys: selectedDeviceKeys ?? this.selectedDeviceKeys,
+      customSwitchNodeIds: customSwitchNodeIds ?? this.customSwitchNodeIds,
+      customSwitchLinks: customSwitchLinks ?? this.customSwitchLinks,
+      customSwitchPorts: customSwitchPorts ?? this.customSwitchPorts,
+      lastSnmpCommunity: lastSnmpCommunity ?? this.lastSnmpCommunity,
     );
   }
 
@@ -35,6 +51,10 @@ class RouteTracerPreferences {
         'hiddenDeviceMacs': hiddenDeviceMacs.toList(),
         'explicitlyShownMacs': explicitlyShownMacs.toList(),
         'selectedDeviceKeys': selectedDeviceKeys.toList(),
+        'customSwitchNodeIds': customSwitchNodeIds.toList(),
+        'customSwitchLinks': customSwitchLinks,
+        'customSwitchPorts': customSwitchPorts,
+        'lastSnmpCommunity': lastSnmpCommunity,
       };
 
   factory RouteTracerPreferences.fromJson(Map<String, dynamic> json) {
@@ -67,11 +87,32 @@ class RouteTracerPreferences {
             .toSet()
         : <String>{};
 
+    final rawSwitches = json['customSwitchNodeIds'];
+    final switchSet = rawSwitches is List ? rawSwitches.whereType<String>().toSet() : <String>{};
+
+    final rawLinks = json['customSwitchLinks'];
+    final switchLinks = rawLinks is Map
+        ? rawLinks.map((k, v) => MapEntry(k.toString(), v.toString()))
+        : <String, String>{};
+
+    final rawPorts = json['customSwitchPorts'];
+    final switchPorts = rawPorts is Map
+        ? rawPorts.map((k, v) => MapEntry(k.toString(), v.toString()))
+        : <String, String>{};
+
+    final snmpCommunity = json['lastSnmpCommunity'] is String
+        ? json['lastSnmpCommunity'] as String
+        : 'public';
+
     return RouteTracerPreferences(
       showAutoDetected: showAuto,
       hiddenDeviceMacs: hiddenSet,
       explicitlyShownMacs: shownSet,
       selectedDeviceKeys: selectedSet,
+      customSwitchNodeIds: switchSet,
+      customSwitchLinks: switchLinks,
+      customSwitchPorts: switchPorts,
+      lastSnmpCommunity: snmpCommunity,
     );
   }
 }

@@ -5,6 +5,7 @@ enum NodeType {
   intermediateRouter,
   targetEndpoint,
   unresponsiveHop,
+  switchDevice,
 }
 
 class NetworkNode {
@@ -17,6 +18,10 @@ class NetworkNode {
   final bool isTarget;
   final bool isLocalHost;
   final bool isUnresponsive;
+  final bool isSwitchNode;
+  final String? connectedSwitchId;
+  final String? switchPort;
+  final String? switchModel;
   final double? rttMs;
   final Set<String> associatedTargets;
 
@@ -37,6 +42,10 @@ class NetworkNode {
     this.isTarget = false,
     this.isLocalHost = false,
     this.isUnresponsive = false,
+    this.isSwitchNode = false,
+    this.connectedSwitchId,
+    this.switchPort,
+    this.switchModel,
     this.rttMs,
     Set<String>? associatedTargets,
     this.sharedDeviceName,
@@ -48,10 +57,13 @@ class NetworkNode {
 
   NodeType get nodeType {
     if (isLocalHost) return NodeType.localHost;
+    if (isSwitchNode || deviceCategoryKey == 'switch') return NodeType.switchDevice;
     if (isUnresponsive) return NodeType.unresponsiveHop;
     if (isTarget) return NodeType.targetEndpoint;
     return NodeType.intermediateRouter;
   }
+
+  bool get isSwitch => nodeType == NodeType.switchDevice;
 
   /// Returns user-assigned friendly name from SharedDeviceDatabase if available,
   /// otherwise reverse-DNS hostname, or finally raw IP.
@@ -80,6 +92,12 @@ class NetworkNode {
     bool? isTarget,
     bool? isLocalHost,
     bool? isUnresponsive,
+    bool? isSwitchNode,
+    String? connectedSwitchId,
+    bool clearConnectedSwitch = false,
+    String? switchPort,
+    bool clearSwitchPort = false,
+    String? switchModel,
     double? rttMs,
     Set<String>? associatedTargets,
     String? sharedDeviceName,
@@ -98,6 +116,10 @@ class NetworkNode {
       isTarget: isTarget ?? this.isTarget,
       isLocalHost: isLocalHost ?? this.isLocalHost,
       isUnresponsive: isUnresponsive ?? this.isUnresponsive,
+      isSwitchNode: isSwitchNode ?? this.isSwitchNode,
+      connectedSwitchId: clearConnectedSwitch ? null : (connectedSwitchId ?? this.connectedSwitchId),
+      switchPort: clearSwitchPort ? null : (switchPort ?? this.switchPort),
+      switchModel: switchModel ?? this.switchModel,
       rttMs: rttMs ?? this.rttMs,
       associatedTargets: associatedTargets ?? Set<String>.from(this.associatedTargets),
       sharedDeviceName: sharedDeviceName ?? this.sharedDeviceName,
@@ -118,6 +140,10 @@ class NetworkNode {
     'is_target': isTarget,
     'is_local_host': isLocalHost,
     'is_unresponsive': isUnresponsive,
+    'is_switch_node': isSwitchNode,
+    'connected_switch_id': connectedSwitchId,
+    'switch_port': switchPort,
+    'switch_model': switchModel,
     'rtt_ms': rttMs,
     'associated_targets': associatedTargets.toList(),
     'shared_device_name': sharedDeviceName,

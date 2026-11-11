@@ -17,6 +17,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.7.0"
+  asn1lib:
+    dependency: transitive
+    description:
+      name: asn1lib
+      sha256: cfb3cf6a53158918d52dda61bc26f0cc8612a0d3b9dc29e87eaa3423902ca636
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.6.8"
   async:
     dependency: transitive
     description:
@@ -81,6 +89,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.0.8"
+  dart_snmp:
+    dependency: "direct main"
+    description:
+      name: dart_snmp
+      sha256: "39fcea6a7b65f4832ac4479ff32dc7ea133ba510b325df2fd7fce7d59fe97920"
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.0.1"
   dbus:
     dependency: transitive
     description:

@@ -278,6 +278,42 @@ class NodeCardWidget extends StatelessWidget {
                     ),
                     maxLines: 1,
                   ),
+                ] else if (node.isSwitch) ...[
+                  Row(
+                    children: [
+                      const Icon(Icons.hub, size: 9, color: Color(0xFF06B6D4)),
+                      const SizedBox(width: 3),
+                      Expanded(
+                        child: Text(
+                          node.switchModel ?? 'Layer 2 Switch',
+                          style: const TextStyle(
+                            fontSize: 8.5,
+                            color: Color(0xFF06B6D4),
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ] else if (node.switchPort != null && node.switchPort!.isNotEmpty) ...[
+                  Row(
+                    children: [
+                      const Icon(Icons.cable, size: 9, color: Color(0xFF06B6D4)),
+                      const SizedBox(width: 3),
+                      Expanded(
+                        child: Text(
+                          'Port: ${node.switchPort!}',
+                          style: const TextStyle(
+                            fontSize: 8.5,
+                            color: Color(0xFF06B6D4),
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
                 ] else if (node.associatedTargets.length > 1) ...[
                   Row(
                     children: [
@@ -313,6 +349,7 @@ class NodeCardWidget extends StatelessWidget {
 
   static Color _getNodeColor(NetworkNode node) {
     if (node.isLocalHost) return AppTheme.hostLocal;
+    if (node.isSwitch) return const Color(0xFF06B6D4);
     if (node.isUnresponsive) return AppTheme.unresponsive;
     if (node.isTarget) return AppTheme.target;
     return AppTheme.router;
@@ -320,6 +357,7 @@ class NodeCardWidget extends StatelessWidget {
 
   static String _getNodeBadgeLabel(NetworkNode node) {
     if (node.isLocalHost) return 'LOCAL HOST';
+    if (node.isSwitch) return 'SWITCH';
     if (node.isUnresponsive) return 'FILTERED';
     if (node.isTarget) return 'ENDPOINT';
     return 'ROUTER';
@@ -327,6 +365,7 @@ class NodeCardWidget extends StatelessWidget {
 
   static IconData _getNodeIcon(NetworkNode node) {
     if (node.isLocalHost) return Icons.laptop_chromebook;
+    if (node.isSwitch) return Icons.hub;
     if (node.isUnresponsive) return Icons.shield_outlined;
     if (node.isTarget) return Icons.device_hub;
     return Icons.router;
