@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:network_suite_shared/network_suite_shared.dart';
 import 'package:provider/provider.dart';
 import 'package:net_route_scout/domain/models/unknown_device_entry.dart';

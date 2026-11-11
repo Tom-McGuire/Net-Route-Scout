@@ -1,5 +1,5 @@
 import 'dart:collection';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import '../../domain/models/network_edge.dart';
 import '../../domain/models/network_node.dart';
 import '../../domain/models/trace_hop.dart';

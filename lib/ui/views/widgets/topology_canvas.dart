@@ -1,5 +1,5 @@
 import 'dart:math' as math;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:net_route_scout/core/app_theme.dart';
 import 'package:net_route_scout/domain/models/network_edge.dart';

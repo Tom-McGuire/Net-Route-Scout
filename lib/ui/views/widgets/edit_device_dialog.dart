@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:network_suite_shared/network_suite_shared.dart';
 import 'package:net_route_scout/core/app_theme.dart';
 import 'package:net_route_scout/domain/models/network_node.dart';
