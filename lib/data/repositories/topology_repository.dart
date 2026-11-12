@@ -261,9 +261,14 @@ class TopologyRepository {
       if (node.macAddress != null) {
         final resolved = sharedDeviceService.resolveDeviceInfo(node.macAddress!);
         if (resolved != null) {
+          final isSwitchCat = resolved.categoryKey == 'switch';
+          if (isSwitchCat) {
+            _customSwitchNodeIds.add(node.id);
+          }
           node = node.copyWith(
             sharedDeviceName: resolved.friendlyName,
             deviceCategoryKey: resolved.categoryKey,
+            isSwitchNode: isSwitchCat ? true : node.isSwitchNode,
             customCategoryColor: resolved.categoryColor,
             customCategoryIcon: resolved.categoryIcon,
             sharedNotes: resolved.device.notes,
