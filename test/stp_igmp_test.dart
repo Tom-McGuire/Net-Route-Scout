@@ -128,5 +128,32 @@ void main() {
       expect(repo.nodes[sw2.id]!.isIgmpQuerier, isTrue);
       expect(repo.nodes[sw2.id]!.igmpQuerierVersion, 'IGMPv3');
     });
+
+    test('L2RoleSnifferService detects packet capture permission errors', () {
+      expect(
+        L2RoleSnifferService.isPermissionError(
+          "tcpdump: eth0: You don't have permission to capture on that device (socket: Operation not permitted)",
+        ),
+        isTrue,
+      );
+      expect(
+        L2RoleSnifferService.isPermissionError(
+          'tshark: The capture session could not be initiated on interface "eth0" (You do not have permission to capture).',
+        ),
+        isTrue,
+      );
+      expect(
+        L2RoleSnifferService.isPermissionError('1 packet captured'),
+        isFalse,
+      );
+
+      const issue = L2CapturePermissionIssue(
+        interfaceName: 'eth0',
+        tcpdumpFound: true,
+        tsharkFound: true,
+        tcpdumpError: 'Operation not permitted',
+      );
+      expect(issue.detectedToolsLabel, 'tcpdump & tshark');
+    });
   });
 }

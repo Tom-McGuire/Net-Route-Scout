@@ -3,6 +3,31 @@ import 'dart:convert';
 import 'dart:io';
 import '../../domain/models/switch_discovery_info.dart';
 
+/// Describes a packet-capture permission failure when `tcpdump` or `tshark`
+/// is installed on the host, but lacks privileges to sniff on [interfaceName].
+class L2CapturePermissionIssue {
+  final String interfaceName;
+  final bool tcpdumpFound;
+  final bool tsharkFound;
+  final String? tcpdumpError;
+  final String? tsharkError;
+
+  const L2CapturePermissionIssue({
+    required this.interfaceName,
+    required this.tcpdumpFound,
+    required this.tsharkFound,
+    this.tcpdumpError,
+    this.tsharkError,
+  });
+
+  String get detectedToolsLabel {
+    if (tcpdumpFound && tsharkFound) return 'tcpdump & tshark';
+    if (tcpdumpFound) return 'tcpdump';
+    if (tsharkFound) return 'tshark';
+    return 'packet sniffer';
+  }
+}
+
 /// Passive Layer 2/3 control-frame sniffer using `tcpdump` (primary) with
 /// automatic fallback to `tshark` (Wireshark CLI).
 ///
@@ -10,20 +35,67 @@ import '../../domain/models/switch_discovery_info.dart';
 /// 1. Fast 4s bounded capture for STP BPDUs (`01:80:C2:00:00:00`).
 /// 2. Background ~130s listener for IGMP General Queries (`224.0.0.1`, Type `0x11`).
 class L2RoleSnifferService {
+  /// Returns true if [stderr] indicates a packet-capture permission or privilege error.
+  static bool isPermissionError(String stderr) {
+    final lower = stderr.toLowerCase();
+    return lower.contains('permission') ||
+        lower.contains('not permitted') ||
+        lower.contains('cap_net_raw') ||
+        lower.contains('access is denied') ||
+        lower.contains("you don't have permission") ||
+        lower.contains('could not open device') ||
+        lower.contains('/dev/bpf');
+  }
+
   /// Phase 1: Bounded 4-second passive capture for STP Root Bridge BPDU.
   static Future<StpPassiveResult?> captureStpRoot({
     required String interfaceName,
     Duration timeout = const Duration(seconds: 4),
+    void Function(L2CapturePermissionIssue issue)? onPermissionIssue,
   }) async {
     if (interfaceName.trim().isEmpty) return null;
 
+    final hasTcpdump = await _isCommandAvailable('tcpdump');
+    final hasTshark = await _isCommandAvailable('tshark');
+
+    String? tcpdumpErr;
+    String? tsharkErr;
+
     // 1. Try tcpdump first
-    final tcpdumpResult = await _runTcpdumpStp(interfaceName, timeout);
-    if (tcpdumpResult != null) return tcpdumpResult;
+    if (hasTcpdump) {
+      final tcpdumpResult = await _runTcpdumpStp(
+        interfaceName,
+        timeout,
+        onError: (err) => tcpdumpErr = err,
+      );
+      if (tcpdumpResult != null) return tcpdumpResult;
+    }
 
     // 2. Fallback to tshark
-    final tsharkResult = await _runTsharkStp(interfaceName, timeout);
-    return tsharkResult;
+    if (hasTshark) {
+      final tsharkResult = await _runTsharkStp(
+        interfaceName,
+        timeout,
+        onError: (err) => tsharkErr = err,
+      );
+      if (tsharkResult != null) return tsharkResult;
+    }
+
+    final tcpdumpDenied = tcpdumpErr != null && isPermissionError(tcpdumpErr!);
+    final tsharkDenied = tsharkErr != null && isPermissionError(tsharkErr!);
+    if ((tcpdumpDenied || tsharkDenied) && onPermissionIssue != null) {
+      onPermissionIssue(
+        L2CapturePermissionIssue(
+          interfaceName: interfaceName,
+          tcpdumpFound: hasTcpdump,
+          tsharkFound: hasTshark,
+          tcpdumpError: tcpdumpErr?.trim(),
+          tsharkError: tsharkErr?.trim(),
+        ),
+      );
+    }
+
+    return null;
   }
 
   /// Phase 2: Background stream for IGMP General Queries (`224.0.0.1`, Type `0x11`).
@@ -36,11 +108,17 @@ class L2RoleSnifferService {
   }) async* {
     if (interfaceName.trim().isEmpty) return;
 
-    // Try tcpdump first; if it fails to start (e.g., not installed), fall back to tshark
+    // Try tcpdump first; if it fails due to permissions or is not installed, fall back to tshark
     final useTcpdump = await _isCommandAvailable('tcpdump');
+    var tcpdumpPermissionFailed = false;
     if (useTcpdump) {
-      yield* _streamTcpdumpIgmp(interfaceName, timeout: timeout, continuous: continuous);
-      return;
+      yield* _streamTcpdumpIgmp(
+        interfaceName,
+        timeout: timeout,
+        continuous: continuous,
+        onPermissionError: () => tcpdumpPermissionFailed = true,
+      );
+      if (!tcpdumpPermissionFailed) return;
     }
 
     final useTshark = await _isCommandAvailable('tshark');
@@ -59,7 +137,11 @@ class L2RoleSnifferService {
     }
   }
 
-  static Future<StpPassiveResult?> _runTcpdumpStp(String iface, Duration timeout) async {
+  static Future<StpPassiveResult?> _runTcpdumpStp(
+    String iface,
+    Duration timeout, {
+    void Function(String stderr)? onError,
+  }) async {
     Process? proc;
     try {
       proc = await Process.start('tcpdump', [
@@ -71,24 +153,35 @@ class L2RoleSnifferService {
       ]);
 
       final lines = <String>[];
+      final errLines = <String>[];
       final sub = proc.stdout.transform(utf8.decoder).transform(const LineSplitter()).listen(lines.add);
+      final errSub = proc.stderr.transform(utf8.decoder).transform(const LineSplitter()).listen(errLines.add);
 
       final exitCode = await proc.exitCode.timeout(timeout, onTimeout: () {
         proc?.kill();
         return -1;
       });
       await sub.cancel();
+      await errSub.cancel();
 
       if (exitCode == 0 && lines.isNotEmpty) {
         return parseTcpdumpStpOutput(lines.join('\n'));
       }
-    } catch (_) {
+      if (exitCode != 0 && exitCode != -1 && errLines.isNotEmpty) {
+        onError?.call(errLines.join('\n'));
+      }
+    } catch (e) {
       proc?.kill();
+      onError?.call(e.toString());
     }
     return null;
   }
 
-  static Future<StpPassiveResult?> _runTsharkStp(String iface, Duration timeout) async {
+  static Future<StpPassiveResult?> _runTsharkStp(
+    String iface,
+    Duration timeout, {
+    void Function(String stderr)? onError,
+  }) async {
     Process? proc;
     try {
       final durationSec = timeout.inSeconds.clamp(1, 30);
@@ -104,19 +197,26 @@ class L2RoleSnifferService {
       ]);
 
       final lines = <String>[];
+      final errLines = <String>[];
       final sub = proc.stdout.transform(utf8.decoder).transform(const LineSplitter()).listen(lines.add);
+      final errSub = proc.stderr.transform(utf8.decoder).transform(const LineSplitter()).listen(errLines.add);
 
       final exitCode = await proc.exitCode.timeout(timeout + const Duration(seconds: 2), onTimeout: () {
         proc?.kill();
         return -1;
       });
       await sub.cancel();
+      await errSub.cancel();
 
       if (exitCode == 0 && lines.isNotEmpty) {
         return parseTsharkStpOutput(lines.join('\n'));
       }
-    } catch (_) {
+      if (exitCode != 0 && exitCode != -1 && errLines.isNotEmpty) {
+        onError?.call(errLines.join('\n'));
+      }
+    } catch (e) {
       proc?.kill();
+      onError?.call(e.toString());
     }
     return null;
   }
@@ -125,6 +225,7 @@ class L2RoleSnifferService {
     String iface, {
     required Duration timeout,
     required bool continuous,
+    void Function()? onPermissionError,
   }) async* {
     Process? proc;
     try {
@@ -148,6 +249,11 @@ class L2RoleSnifferService {
       }
 
       final buffer = StringBuffer();
+      final errBuffer = StringBuffer();
+      final errSub = proc.stderr.transform(utf8.decoder).transform(const LineSplitter()).listen((line) {
+        errBuffer.writeln(line);
+      });
+
       final sub = proc.stdout.transform(utf8.decoder).transform(const LineSplitter()).listen(
         (line) {
           buffer.writeln(line);
@@ -164,6 +270,9 @@ class L2RoleSnifferService {
         },
         onDone: () {
           timeoutTimer?.cancel();
+          if (isPermissionError(errBuffer.toString())) {
+            onPermissionError?.call();
+          }
           if (!controller.isClosed) controller.close();
         },
         onError: (_) {
@@ -174,6 +283,7 @@ class L2RoleSnifferService {
 
       yield* controller.stream;
       await sub.cancel();
+      await errSub.cancel();
     } catch (_) {
       proc?.kill();
     } finally {

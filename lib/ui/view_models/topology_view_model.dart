@@ -54,6 +54,8 @@ class TopologyViewModel extends ChangeNotifier {
   Timer? _igmpPhaseTimer;
   CancellationToken? _currentScanToken;
   L2ScanPhase _l2ScanPhase = L2ScanPhase.idle;
+  L2CapturePermissionIssue? _l2PermissionIssue;
+  bool _l2PermissionDismissedThisSession = false;
   bool _disposed = false;
   Timer? _throttleTimer;
   bool _needsNotify = false;
@@ -102,6 +104,7 @@ class TopologyViewModel extends ChangeNotifier {
   bool get isSharedDbConnected => _isSharedDbConnected;
   bool get isScanning => _scanProgress.isScanning;
   L2ScanPhase get l2ScanPhase => _l2ScanPhase;
+  L2CapturePermissionIssue? get l2PermissionIssue => _l2PermissionIssue;
 
   List<String> get l2DiagnosticAlerts {
     final alerts = <String>[];
@@ -964,6 +967,11 @@ class TopologyViewModel extends ChangeNotifier {
     L2RoleSnifferService.captureStpRoot(
       interfaceName: ifaceName,
       timeout: const Duration(seconds: 4),
+      onPermissionIssue: (issue) {
+        if (_disposed || _l2PermissionDismissedThisSession) return;
+        _l2PermissionIssue = issue;
+        _notify();
+      },
     ).then((stpResult) {
       if (_disposed) return;
       if (stpResult != null) {
@@ -1010,6 +1018,12 @@ class TopologyViewModel extends ChangeNotifier {
         },
       );
     });
+  }
+
+  void consumeL2PermissionIssue() {
+    _l2PermissionIssue = null;
+    _l2PermissionDismissedThisSession = true;
+    _notify();
   }
 
   void stopPassiveL2Scans() {

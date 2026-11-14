@@ -5,6 +5,7 @@ import '../view_models/topology_view_model.dart';
 import 'widgets/alert_banner.dart';
 import 'widgets/detail_inspector_panel.dart';
 import 'widgets/filter_toolbar.dart';
+import 'widgets/l2_capture_permission_dialog.dart';
 import 'widgets/route_table_view.dart';
 import 'widgets/top_control_bar.dart';
 import 'widgets/topology_canvas.dart';
@@ -17,6 +18,8 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
+  bool _isShowingL2PermissionDialog = false;
+
   @override
   void initState() {
     super.initState();
@@ -41,6 +44,19 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     final vm = context.watch<TopologyViewModel>();
+    final permissionIssue = vm.l2PermissionIssue;
+    if (permissionIssue != null && !_isShowingL2PermissionDialog) {
+      _isShowingL2PermissionDialog = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        vm.consumeL2PermissionIssue();
+        if (mounted) {
+          await L2CapturePermissionDialog.show(context, permissionIssue);
+        }
+        if (mounted) {
+          _isShowingL2PermissionDialog = false;
+        }
+      });
+    }
 
     return Scaffold(
       body: Column(
