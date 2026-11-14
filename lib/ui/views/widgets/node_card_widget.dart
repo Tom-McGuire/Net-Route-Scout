@@ -92,24 +92,80 @@ class NodeCardWidget extends StatelessWidget {
                       child: Icon(iconData, size: 12, color: themeColor),
                     ),
                     const SizedBox(width: 6),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
-                      decoration: BoxDecoration(
-                        color: themeColor.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(3),
-                        border: Border.all(color: themeColor.withValues(alpha: 0.3), width: 0.8),
-                      ),
-                      child: Text(
-                        badgeLabel,
-                        style: TextStyle(
-                          fontSize: 8.5,
-                          fontWeight: FontWeight.bold,
-                          color: themeColor,
-                          letterSpacing: 0.4,
+                    Expanded(
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                              decoration: BoxDecoration(
+                                color: themeColor.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(3),
+                                border: Border.all(color: themeColor.withValues(alpha: 0.3), width: 0.8),
+                              ),
+                              child: Text(
+                                badgeLabel,
+                                style: TextStyle(
+                                  fontSize: 8.5,
+                                  fontWeight: FontWeight.bold,
+                                  color: themeColor,
+                                  letterSpacing: 0.4,
+                                ),
+                              ),
+                            ),
+                            if (node.isStpRootBridge) ...[
+                              const SizedBox(width: 4),
+                              Tooltip(
+                                message: 'STP Root Bridge${node.stpPriority != null ? ' (Priority ${node.stpPriority})' : ''}',
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1.5),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF59E0B).withValues(alpha: 0.2),
+                                    borderRadius: BorderRadius.circular(3),
+                                    border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.55), width: 0.8),
+                                  ),
+                                  child: const Text(
+                                    'ROOT',
+                                    style: TextStyle(
+                                      fontSize: 7.5,
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFFF59E0B),
+                                      letterSpacing: 0.3,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                            if (node.isIgmpQuerier) ...[
+                              const SizedBox(width: 4),
+                              Tooltip(
+                                message: 'Active IGMP Querier${node.igmpQuerierVersion != null ? ' (${node.igmpQuerierVersion})' : ''}',
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1.5),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF06B6D4).withValues(alpha: 0.2),
+                                    borderRadius: BorderRadius.circular(3),
+                                    border: Border.all(color: const Color(0xFF06B6D4).withValues(alpha: 0.55), width: 0.8),
+                                  ),
+                                  child: const Text(
+                                    'QUERIER',
+                                    style: TextStyle(
+                                      fontSize: 7.5,
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFF06B6D4),
+                                      letterSpacing: 0.3,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                       ),
                     ),
-                    const Spacer(),
+                    const SizedBox(width: 6),
                     if (node.rttMs != null) ...[
                       Text(
                         '${node.rttMs!.toStringAsFixed(1)} ms',

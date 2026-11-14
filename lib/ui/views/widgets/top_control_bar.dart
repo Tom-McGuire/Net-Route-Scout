@@ -355,7 +355,12 @@ class _TopControlBarState extends State<TopControlBar> {
                       ],
                     ),
 
-                    const SizedBox(width: 24),
+                    if (vm.l2ScanPhase != L2ScanPhase.idle) ...[
+                      const SizedBox(width: 12),
+                      _buildL2ScanIndicator(vm),
+                      const SizedBox(width: 12),
+                    ] else
+                      const SizedBox(width: 24),
 
                     // Right Cluster: Zone 4 (Ecosystem & Demo), Zone 5 (Clear & Export)
                     Row(
@@ -545,6 +550,50 @@ class _TopControlBarState extends State<TopControlBar> {
               color: Colors.white70,
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildL2ScanIndicator(TopologyViewModel vm) {
+    final isStp = vm.l2ScanPhase == L2ScanPhase.scanningStp;
+    final color = isStp ? const Color(0xFFF59E0B) : const Color(0xFF06B6D4);
+    final label = isStp ? 'STP Scan (4s)' : 'Querier Scan (130s)';
+    final tooltip = isStp
+        ? 'Listening passively for STP/RSTP BPDUs (4s window)'
+        : 'Listening in background for IGMP General Queries (up to 130s)';
+
+    return Tooltip(
+      message: tooltip,
+      child: Container(
+        height: 28,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.14),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: color.withValues(alpha: 0.45)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 11,
+              height: 11,
+              child: CircularProgressIndicator(
+                strokeWidth: 1.8,
+                valueColor: AlwaysStoppedAnimation<Color>(color),
+              ),
+            ),
+            const SizedBox(width: 7),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: color,
+              ),
+            ),
+          ],
         ),
       ),
     );

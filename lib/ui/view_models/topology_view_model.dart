@@ -11,17 +11,21 @@ import '../../data/services/arp_service.dart';
 import '../../data/services/demo_data_generator.dart';
 import '../../data/services/export_service.dart';
 import '../../data/services/icmp_service.dart';
+import '../../data/services/l2_role_sniffer_service.dart';
 import '../../data/services/network_adapter_service.dart';
 import '../../data/services/route_tracer_preferences_service.dart';
 import '../../data/services/shared_device_service.dart';
 import '../../data/services/traceroute_service.dart';
 import '../../data/services/inter_app_launcher.dart';
 import '../../domain/models/cancellation_token.dart';
+import '../../domain/models/igmp_vlan_status.dart';
 import '../../domain/models/inter_app_arguments.dart';
 import '../../domain/models/network_adapter_info.dart';
 import '../../domain/models/network_edge.dart';
 import '../../domain/models/network_node.dart';
 import '../../domain/models/scan_progress.dart';
+import '../../domain/models/stp_port_info.dart';
+import '../../domain/models/switch_discovery_info.dart';
 import '../../domain/models/trace_hop.dart';
 import '../../domain/models/trace_result.dart';
 import '../../domain/models/unknown_device_entry.dart';
@@ -32,6 +36,12 @@ enum TopologyViewMode {
   split,
 }
 
+enum L2ScanPhase {
+  idle,
+  scanningStp,
+  listeningIgmp,
+}
+
 class TopologyViewModel extends ChangeNotifier {
   final TopologyRepository _repository;
   final TracerouteService _tracerouteService;
@@ -40,7 +50,10 @@ class TopologyViewModel extends ChangeNotifier {
   final SharedDeviceService _sharedDeviceService;
 
   StreamSubscription<void>? _dbSubscription;
+  StreamSubscription<IgmpPassiveResult>? _igmpListenerSub;
+  Timer? _igmpPhaseTimer;
   CancellationToken? _currentScanToken;
+  L2ScanPhase _l2ScanPhase = L2ScanPhase.idle;
   bool _disposed = false;
   Timer? _throttleTimer;
   bool _needsNotify = false;
@@ -88,6 +101,50 @@ class TopologyViewModel extends ChangeNotifier {
   String? get statusBannerText => _statusBannerText;
   bool get isSharedDbConnected => _isSharedDbConnected;
   bool get isScanning => _scanProgress.isScanning;
+  L2ScanPhase get l2ScanPhase => _l2ScanPhase;
+
+  List<String> get l2DiagnosticAlerts {
+    final alerts = <String>[];
+    final switches = _repository.nodes.values.where((n) => n.isSwitch).toList();
+    if (switches.isEmpty) return alerts;
+
+    final stpRoots = switches.where((s) => s.isStpRootBridge).toList();
+    final queriers = _repository.nodes.values.where((n) => n.isIgmpQuerier).toList();
+
+    // 1. Ring Split Detection
+    for (final edge in _repository.edges.values) {
+      if (edge.stpState == LinkStpState.blocking) {
+        final blkNode = edge.blockingSwitchId != null ? _repository.nodes[edge.blockingSwitchId!] : null;
+        final swName = blkNode?.displayName ?? edge.blockingSwitchId ?? edge.targetIp;
+        final portLabel = edge.blockingPortName != null ? ' (${edge.blockingPortName})' : '';
+        alerts.add('STP Ring Split: Link ${edge.sourceIp} ↔ ${edge.targetIp} is Blocking at $swName$portLabel.');
+      }
+    }
+
+    // 2. Default STP Priority (32768) Warning
+    for (final root in stpRoots) {
+      if (root.stpPriority == 32768) {
+        alerts.add('Default STP Priority (32768) on Root Bridge "${root.displayName}". Lower priority (e.g. 4096) recommended to anchor root.');
+      }
+    }
+
+    // 3. Missing IGMP Querier when Snooping is Active
+    final snoopingActive = switches.any((s) => s.igmpSnoopingEnabled);
+    if (snoopingActive && queriers.isEmpty && _l2ScanPhase != L2ScanPhase.listeningIgmp) {
+      alerts.add('IGMP Snooping is active but no IGMP Querier was detected. Multicast streams may flood or timeout.');
+    }
+
+    // 4. Misaligned STP Root & IGMP Querier Warning
+    if (stpRoots.isNotEmpty && queriers.isNotEmpty) {
+      final root = stpRoots.first;
+      final querier = queriers.first;
+      if (root.id != querier.id) {
+        alerts.add('Misaligned STP Root & IGMP Querier: STP Root is "${root.displayName}" while IGMP Querier is "${querier.displayName}". Multicast traffic may traverse suboptimal paths.');
+      }
+    }
+
+    return alerts;
+  }
   bool get showAutoDetected => _showAutoDetected;
   Set<String> get hiddenDeviceMacs => Set.unmodifiable(_hiddenDeviceMacs);
   Set<String> get explicitlyShownMacs => Set.unmodifiable(_explicitlyShownMacs);
@@ -888,6 +945,84 @@ class TopologyViewModel extends ChangeNotifier {
     _notify();
   }
 
+  void applyStpAndIgmpFromSnmp(String switchNodeId, SwitchDiscoveryResult result) {
+    _repository.applyStpAndIgmpFromSnmp(switchNodeId, result);
+    _notify();
+  }
+
+  /// Launches the decoupled 2-phase passive Layer 2 capture:
+  /// 1. 4-second bounded STP BPDU capture.
+  /// 2. ~130-second background IGMP General Query listener.
+  void startPassiveL2Scans({bool continuous = false}) {
+    stopPassiveL2Scans();
+    final ifaceName = _selectedAdapter?.id ?? _selectedAdapter?.name ?? '';
+    if (ifaceName.isEmpty) return;
+
+    _l2ScanPhase = L2ScanPhase.scanningStp;
+    _notify();
+
+    L2RoleSnifferService.captureStpRoot(
+      interfaceName: ifaceName,
+      timeout: const Duration(seconds: 4),
+    ).then((stpResult) {
+      if (_disposed) return;
+      if (stpResult != null) {
+        _repository.applyPassiveStpRoot(stpResult);
+      }
+
+      // Transition to Phase 2: ~130s background IGMP Querier listener
+      _l2ScanPhase = L2ScanPhase.listeningIgmp;
+      _notify();
+
+      const igmpTimeout = Duration(seconds: 130);
+      if (!continuous) {
+        _igmpPhaseTimer?.cancel();
+        _igmpPhaseTimer = Timer(igmpTimeout, () {
+          if (_disposed) return;
+          if (_l2ScanPhase == L2ScanPhase.listeningIgmp) {
+            _l2ScanPhase = L2ScanPhase.idle;
+            _notify();
+          }
+        });
+      }
+
+      _igmpListenerSub = L2RoleSnifferService.listenForIgmpQuerier(
+        interfaceName: ifaceName,
+        timeout: igmpTimeout,
+        continuous: continuous,
+      ).listen(
+        (igmpRes) {
+          if (_disposed) return;
+          _repository.applyPassiveIgmpQuerier(igmpRes);
+          if (!continuous) {
+            _igmpPhaseTimer?.cancel();
+            _l2ScanPhase = L2ScanPhase.idle;
+          }
+          _notify();
+        },
+        onDone: () {
+          if (_disposed) return;
+          _igmpPhaseTimer?.cancel();
+          if (_l2ScanPhase == L2ScanPhase.listeningIgmp) {
+            _l2ScanPhase = L2ScanPhase.idle;
+            _notify();
+          }
+        },
+      );
+    });
+  }
+
+  void stopPassiveL2Scans() {
+    _igmpPhaseTimer?.cancel();
+    _igmpPhaseTimer = null;
+    _igmpListenerSub?.cancel();
+    _igmpListenerSub = null;
+    if (_l2ScanPhase != L2ScanPhase.idle) {
+      _l2ScanPhase = L2ScanPhase.idle;
+      _notify();
+    }
+  }
+
   void setShowAutoDetected(bool value) {
     if (_showAutoDetected == value) return;
     _showAutoDetected = value;
@@ -1048,6 +1183,7 @@ class TopologyViewModel extends ChangeNotifier {
   }
 
   void clearGraph() {
+    stopPassiveL2Scans();
     _repository.clear();
     _scanProgress = const ScanProgress();
     _statusBannerText = null;
@@ -1056,6 +1192,7 @@ class TopologyViewModel extends ChangeNotifier {
 
   /// Cancels any running scan immediately.
   Future<void> cancelSweep() async {
+    stopPassiveL2Scans();
     _currentScanToken?.cancel();
     _icmpService.cancel();
     _tracerouteService.cancel();
@@ -1070,6 +1207,7 @@ class TopologyViewModel extends ChangeNotifier {
   /// Starts the 2-phase discovery pipeline:
   /// Phase 1: Pre-flight ICMP ping sweep with queue worker pool
   /// Phase 2: Multi-hop OS native traceroute sweep with sequential live hop ingestion
+  /// Plus decoupled passive L2 scans (4s STP capture -> ~130s IGMP Querier listener).
   Future<void> startSweep() async {
     if (_scanProgress.isScanning) return;
 
@@ -1079,6 +1217,9 @@ class TopologyViewModel extends ChangeNotifier {
       _notify();
       return;
     }
+
+    // Launch passive Layer 2 scans (4s STP -> 130s IGMP Querier) alongside sweep
+    startPassiveL2Scans();
 
     // Clear active selection and filters that would mask or dim newly scanned topology
     _repository.selectNode(null);
@@ -1367,6 +1508,93 @@ class TopologyViewModel extends ChangeNotifier {
     _repository.connectNodeToSwitch('10.0.2.101', accessSwitch.id, portLabel: 'Port 5 (MacBook)');
     _repository.connectNodeToSwitch('10.0.2.215', accessSwitch.id, portLabel: 'Port 12 (Conf TV)');
 
+    final ringEdgeSwitch = _repository.addStandaloneSwitch(
+      name: 'Stage Left AV Switch',
+      ip: '10.0.2.3',
+      model: 'Luminex GigaCore 16RFO',
+      upstreamNodeId: '10.0.2.1',
+    );
+    _repository.connectNodeToSwitch(ringEdgeSwitch.id, '10.0.2.1', portLabel: 'Fiber Trunk 1/26');
+
+    // Enrich Demo Switches with STP Root Bridge, Ring Split, and IGMP Querier telemetry
+    final distNode = _repository.nodes['10.0.2.1'];
+    if (distNode != null) {
+      _repository.updateNodeDirect(distNode.copyWith(
+        isStpRootBridge: true,
+        stpPriority: 4096,
+        stpBridgeId: '4096 / AA:BB:CC:11:22:01',
+        stpDesignatedRootId: '4096 / AA:BB:CC:11:22:01',
+        stpRootCost: 0,
+        isIgmpQuerier: true,
+        igmpQuerierVersion: 'IGMPv3',
+        igmpSnoopingEnabled: true,
+        igmpVlans: const [
+          IgmpVlanStatus(
+            vlanId: 1,
+            vlanName: 'Default / AV Control',
+            snoopingEnabled: true,
+            localQuerierEnabled: true,
+            activeQuerierIp: '10.0.2.1',
+            igmpVersion: 3,
+            isLocalSwitchQuerier: true,
+          ),
+        ],
+        stpPorts: const [
+          StpPortInfo(bridgePort: 1, ifIndex: 1, interfaceName: 'Gi1/0/1', state: StpPortState.forwarding, role: StpPortRole.designated),
+          StpPortInfo(bridgePort: 24, ifIndex: 24, interfaceName: 'Gi1/0/24', state: StpPortState.forwarding, role: StpPortRole.designated),
+          StpPortInfo(bridgePort: 26, ifIndex: 26, interfaceName: 'Te1/0/26', state: StpPortState.forwarding, role: StpPortRole.designated),
+        ],
+      ));
+    }
+
+    final accessNode = _repository.nodes[accessSwitch.id];
+    if (accessNode != null) {
+      _repository.updateNodeDirect(accessNode.copyWith(
+        stpPriority: 32768,
+        stpBridgeId: '32768 / AA:BB:CC:11:22:02',
+        stpDesignatedRootId: '4096 / AA:BB:CC:11:22:01',
+        stpRootCost: 4,
+        igmpSnoopingEnabled: true,
+        igmpVlans: const [
+          IgmpVlanStatus(
+            vlanId: 1,
+            vlanName: 'Default / AV Control',
+            snoopingEnabled: true,
+            activeQuerierIp: '10.0.2.1',
+            igmpVersion: 3,
+          ),
+        ],
+        stpPorts: const [
+          StpPortInfo(bridgePort: 24, ifIndex: 24, interfaceName: 'Uplink 1/24', state: StpPortState.forwarding, role: StpPortRole.root),
+          StpPortInfo(bridgePort: 25, ifIndex: 25, interfaceName: 'Ring 1/25', state: StpPortState.blocking, role: StpPortRole.alternate),
+        ],
+      ));
+    }
+
+    final ringNode = _repository.nodes[ringEdgeSwitch.id];
+    if (ringNode != null) {
+      _repository.updateNodeDirect(ringNode.copyWith(
+        stpPriority: 32768,
+        stpBridgeId: '32768 / AA:BB:CC:11:22:03',
+        stpDesignatedRootId: '4096 / AA:BB:CC:11:22:01',
+        stpRootCost: 4,
+        igmpSnoopingEnabled: true,
+        stpPorts: const [
+          StpPortInfo(bridgePort: 26, ifIndex: 26, interfaceName: 'Fiber 1/26', state: StpPortState.forwarding, role: StpPortRole.root),
+        ],
+      ));
+    }
+
+    // Add blocked ring split edge between Stage Left AV Switch <-> Floor 2 Access Switch
+    _repository.updateEdgeDirect(NetworkEdge(
+      sourceIp: ringEdgeSwitch.id,
+      targetIp: accessSwitch.id,
+      stpState: LinkStpState.blocking,
+      blockingSwitchId: accessSwitch.id,
+      blockingPortName: 'Ring 1/25',
+    ));
+    _repository.correlateStpEdges();
+
     _scanProgress = ScanProgress(
       phase: 'Demo Topology Loaded (${_repository.nodes.length} nodes, ${_repository.edges.length} edges)',
       totalTargets: demoTraces.length,
@@ -1400,6 +1628,7 @@ class TopologyViewModel extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    stopPassiveL2Scans();
     _throttleTimer?.cancel();
     _currentScanToken?.cancel();
     _dbSubscription?.cancel();

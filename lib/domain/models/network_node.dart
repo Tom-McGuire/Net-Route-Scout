@@ -1,4 +1,6 @@
 import 'package:material_ui/material_ui.dart';
+import 'igmp_vlan_status.dart';
+import 'stp_port_info.dart';
 
 enum NodeType {
   localHost,
@@ -32,6 +34,18 @@ class NetworkNode {
   final Color? customCategoryColor;
   final IconData? customCategoryIcon;
 
+  // STP / RSTP & IGMP Querier telemetry
+  final bool isStpRootBridge;
+  final int? stpPriority;
+  final String? stpBridgeId;
+  final String? stpDesignatedRootId;
+  final int? stpRootCost;
+  final List<StpPortInfo> stpPorts;
+  final bool isIgmpQuerier;
+  final String? igmpQuerierVersion;
+  final bool igmpSnoopingEnabled;
+  final List<IgmpVlanStatus> igmpVlans;
+
   NetworkNode({
     required this.id,
     required this.ip,
@@ -53,6 +67,16 @@ class NetworkNode {
     this.sharedNotes,
     this.customCategoryColor,
     this.customCategoryIcon,
+    this.isStpRootBridge = false,
+    this.stpPriority,
+    this.stpBridgeId,
+    this.stpDesignatedRootId,
+    this.stpRootCost,
+    this.stpPorts = const [],
+    this.isIgmpQuerier = false,
+    this.igmpQuerierVersion,
+    this.igmpSnoopingEnabled = false,
+    this.igmpVlans = const [],
   }) : associatedTargets = associatedTargets ?? <String>{};
 
   NodeType get nodeType {
@@ -105,6 +129,16 @@ class NetworkNode {
     String? sharedNotes,
     Color? customCategoryColor,
     IconData? customCategoryIcon,
+    bool? isStpRootBridge,
+    int? stpPriority,
+    String? stpBridgeId,
+    String? stpDesignatedRootId,
+    int? stpRootCost,
+    List<StpPortInfo>? stpPorts,
+    bool? isIgmpQuerier,
+    String? igmpQuerierVersion,
+    bool? igmpSnoopingEnabled,
+    List<IgmpVlanStatus>? igmpVlans,
   }) {
     return NetworkNode(
       id: id ?? this.id,
@@ -127,6 +161,16 @@ class NetworkNode {
       sharedNotes: sharedNotes ?? this.sharedNotes,
       customCategoryColor: customCategoryColor ?? this.customCategoryColor,
       customCategoryIcon: customCategoryIcon ?? this.customCategoryIcon,
+      isStpRootBridge: isStpRootBridge ?? this.isStpRootBridge,
+      stpPriority: stpPriority ?? this.stpPriority,
+      stpBridgeId: stpBridgeId ?? this.stpBridgeId,
+      stpDesignatedRootId: stpDesignatedRootId ?? this.stpDesignatedRootId,
+      stpRootCost: stpRootCost ?? this.stpRootCost,
+      stpPorts: stpPorts ?? this.stpPorts,
+      isIgmpQuerier: isIgmpQuerier ?? this.isIgmpQuerier,
+      igmpQuerierVersion: igmpQuerierVersion ?? this.igmpQuerierVersion,
+      igmpSnoopingEnabled: igmpSnoopingEnabled ?? this.igmpSnoopingEnabled,
+      igmpVlans: igmpVlans ?? this.igmpVlans,
     );
   }
 
@@ -149,5 +193,15 @@ class NetworkNode {
     'shared_device_name': sharedDeviceName,
     'device_category': deviceCategoryKey,
     'shared_notes': sharedNotes,
+    'is_stp_root_bridge': isStpRootBridge,
+    'stp_priority': stpPriority,
+    'stp_bridge_id': stpBridgeId,
+    'stp_designated_root_id': stpDesignatedRootId,
+    'stp_root_cost': stpRootCost,
+    'stp_ports': stpPorts.map((p) => p.toJson()).toList(),
+    'is_igmp_querier': isIgmpQuerier,
+    'igmp_querier_version': igmpQuerierVersion,
+    'igmp_snooping_enabled': igmpSnoopingEnabled,
+    'igmp_vlans': igmpVlans.map((v) => v.toJson()).toList(),
   };
 }

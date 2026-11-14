@@ -11,8 +11,9 @@ class AlertBanner extends StatelessWidget {
     final vm = context.watch<TopologyViewModel>();
     final progress = vm.scanProgress;
     final statusMsg = vm.statusBannerText;
+    final l2Alerts = vm.l2DiagnosticAlerts;
 
-    if (!progress.isScanning && statusMsg == null) {
+    if (!progress.isScanning && statusMsg == null && l2Alerts.isEmpty) {
       return const SizedBox.shrink();
     }
 
@@ -100,7 +101,8 @@ class AlertBanner extends StatelessWidget {
       );
     }
 
-    // Status warning / message banner
+    // Status warning / message banner or L2 diagnostics
+    final displayMessage = statusMsg ?? l2Alerts.join('  •  ');
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       decoration: BoxDecoration(
@@ -115,7 +117,7 @@ class AlertBanner extends StatelessWidget {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              statusMsg ?? '',
+              displayMessage,
               style: const TextStyle(fontSize: 12, color: Color(0xFFF59E0B)),
             ),
           ),

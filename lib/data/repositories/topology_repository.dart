@@ -2,6 +2,8 @@ import 'dart:collection';
 import 'package:material_ui/material_ui.dart';
 import '../../domain/models/network_edge.dart';
 import '../../domain/models/network_node.dart';
+import '../../domain/models/stp_port_info.dart';
+import '../../domain/models/switch_discovery_info.dart';
 import '../../domain/models/trace_hop.dart';
 import '../../domain/models/trace_result.dart';
 import '../services/arp_service.dart';
@@ -688,5 +690,149 @@ class TopologyRepository {
   int getEffectiveDepth(String nodeId) {
     final allDepths = computeTopologicalDepths();
     return allDepths[nodeId] ?? (_nodes[nodeId]?.hopDepth ?? 1);
+  }
+
+  // ==========================================
+  // STP RING & IGMP QUERIER CORRELATION
+  // ==========================================
+
+  void updateNodeDirect(NetworkNode updatedNode) {
+    _nodes[updatedNode.id] = updatedNode;
+  }
+
+  void updateEdgeDirect(NetworkEdge updatedEdge) {
+    _edges[updatedEdge.edgeId] = updatedEdge;
+  }
+
+  /// Applies BRIDGE-MIB STP & IGMP Querier telemetry discovered via SNMP to [switchNodeId]
+  /// and correlates ring split edges and active querier nodes.
+  void applyStpAndIgmpFromSnmp(String switchNodeId, SwitchDiscoveryResult result) {
+    final node = _nodes[switchNodeId];
+    if (node == null) return;
+
+    final isLocalQuerier = result.igmpVlans.any((v) => v.isLocalSwitchQuerier);
+    final querierVer = result.igmpVlans.isNotEmpty
+        ? 'IGMPv${result.igmpVlans.first.igmpVersion}'
+        : node.igmpQuerierVersion;
+
+    _nodes[switchNodeId] = node.copyWith(
+      isStpRootBridge: result.isStpRootBridge || node.isStpRootBridge,
+      stpPriority: result.stpPriority ?? node.stpPriority,
+      stpBridgeId: result.stpBridgeMac != null
+          ? '${result.stpPriority ?? 32768} / ${result.stpBridgeMac}'
+          : node.stpBridgeId,
+      stpDesignatedRootId: result.stpDesignatedRootId ?? node.stpDesignatedRootId,
+      stpRootCost: result.stpRootCost ?? node.stpRootCost,
+      stpPorts: result.stpPorts.isNotEmpty ? result.stpPorts : node.stpPorts,
+      igmpSnoopingEnabled: result.igmpSnoopingEnabled || node.igmpSnoopingEnabled,
+      igmpVlans: result.igmpVlans.isNotEmpty ? result.igmpVlans : node.igmpVlans,
+      isIgmpQuerier: isLocalQuerier || node.isIgmpQuerier,
+      igmpQuerierVersion: isLocalQuerier ? querierVer : node.igmpQuerierVersion,
+    );
+
+    // Cross-correlate active Querier IP with any other switch/host node
+    for (final vlan in result.igmpVlans) {
+      final qIp = vlan.activeQuerierIp;
+      if (qIp != null && _nodes.containsKey(qIp)) {
+        final qNode = _nodes[qIp]!;
+        _nodes[qIp] = qNode.copyWith(
+          isIgmpQuerier: true,
+          igmpQuerierVersion: 'IGMPv${vlan.igmpVersion}',
+        );
+      }
+    }
+
+    correlateStpEdges();
+  }
+
+  /// Correlates passive 4s STP BPDU Root Bridge MAC with discovered nodes.
+  bool applyPassiveStpRoot(StpPassiveResult result) {
+    final targetMac = result.rootBridgeMac.toUpperCase();
+    bool matched = false;
+
+    for (final entry in _nodes.entries) {
+      final node = entry.value;
+      final nodeMac = node.macAddress?.toUpperCase();
+      final matchesBridgeId = node.stpBridgeId?.toUpperCase().contains(targetMac) ?? false;
+
+      if (nodeMac == targetMac || matchesBridgeId) {
+        _nodes[entry.key] = node.copyWith(
+          isStpRootBridge: true,
+          stpPriority: result.rootPriority ?? node.stpPriority,
+        );
+        matched = true;
+      } else if (node.isStpRootBridge) {
+        // Clear stale root flag if a different Root Bridge MAC was newly observed
+        _nodes[entry.key] = node.copyWith(isStpRootBridge: false);
+      }
+    }
+    return matched;
+  }
+
+  /// Correlates passive ~130s IGMP General Query IP with discovered nodes.
+  bool applyPassiveIgmpQuerier(IgmpPassiveResult result) {
+    final targetIp = result.querierIp.trim();
+    bool matched = false;
+
+    for (final entry in _nodes.entries) {
+      final node = entry.value;
+      if (node.ip == targetIp) {
+        _nodes[entry.key] = node.copyWith(
+          isIgmpQuerier: true,
+          igmpQuerierVersion: result.igmpVersion,
+        );
+        matched = true;
+      } else if (node.isIgmpQuerier) {
+        _nodes[entry.key] = node.copyWith(isIgmpQuerier: false);
+      }
+    }
+    return matched;
+  }
+
+  /// Evaluates switch-to-switch edges against STP port states to mark
+  /// blocking ring splits and forwarding traffic directions.
+  void correlateStpEdges() {
+    for (final edgeKey in _edges.keys.toList()) {
+      final edge = _edges[edgeKey]!;
+      final srcNode = _nodes[edge.sourceIp];
+      final dstNode = _nodes[edge.targetIp];
+      if (srcNode == null || dstNode == null) continue;
+      if (!srcNode.isSwitch || !dstNode.isSwitch) continue;
+
+      StpPortInfo? blockingPort;
+      String? blockingSwitchId;
+
+      for (final p in dstNode.stpPorts) {
+        if (p.state == StpPortState.blocking) {
+          blockingPort = p;
+          blockingSwitchId = dstNode.id;
+          break;
+        }
+      }
+      if (blockingPort == null) {
+        for (final p in srcNode.stpPorts) {
+          if (p.state == StpPortState.blocking) {
+            blockingPort = p;
+            blockingSwitchId = srcNode.id;
+            break;
+          }
+        }
+      }
+
+      if (blockingPort != null) {
+        _edges[edgeKey] = edge.copyWith(
+          stpState: LinkStpState.blocking,
+          blockingSwitchId: blockingSwitchId,
+          blockingPortName: blockingPort.interfaceName,
+        );
+      } else if (srcNode.stpPorts.isNotEmpty || dstNode.stpPorts.isNotEmpty) {
+        final srcCost = srcNode.stpRootCost ?? 0;
+        final dstCost = dstNode.stpRootCost ?? 1;
+        _edges[edgeKey] = edge.copyWith(
+          stpState: LinkStpState.forwarding,
+          trafficDirectionTargetNodeId: srcCost <= dstCost ? dstNode.id : srcNode.id,
+        );
+      }
+    }
   }
 }

@@ -158,6 +158,9 @@ class _SnmpDiscoveryDialogState extends State<SnmpDiscoveryDialog> {
       }
     }
 
+    // 4. Apply STP & IGMP MIB telemetry
+    widget.viewModel.applyStpAndIgmpFromSnmp(switchNode.id, res);
+
     Navigator.of(context).pop();
 
     ScaffoldMessenger.of(context).showSnackBar(

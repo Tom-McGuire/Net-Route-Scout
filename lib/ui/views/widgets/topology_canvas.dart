@@ -617,7 +617,20 @@ class _TopologyEdgesPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeCap = StrokeCap.round;
 
-      if (isCommon) {
+      if (edge.stpState == LinkStpState.blocking) {
+        // STP Ring Split: dashed crimson/amber line with midpoint pill
+        const splitColor = Color(0xFFEF4444);
+        paint
+          ..color = isDimmed ? splitColor.withValues(alpha: 0.25) : splitColor.withValues(alpha: 0.85)
+          ..strokeWidth = 2.2;
+
+        _drawDashedPath(canvas, path, paint, dashWidth: 7, dashSpace: 5);
+
+        if (!isDimmed) {
+          final midPoint = _getCurveMidpoint(start, controlPoint1, controlPoint2, end);
+          _drawSplitBadge(canvas, midPoint, '✂ STP SPLIT (BLK)');
+        }
+      } else if (isCommon) {
         // Glowing prominent common network path edge (Amber)
         const amberColor = Color(0xFFF59E0B);
         paint
@@ -694,6 +707,65 @@ class _TopologyEdgesPainter extends CustomPainter {
     path.close();
 
     canvas.drawPath(path, arrowPaint);
+  }
+
+  void _drawDashedPath(Canvas canvas, Path path, Paint paint, {double dashWidth = 6, double dashSpace = 4}) {
+    for (final metric in path.computeMetrics()) {
+      double distance = 0;
+      while (distance < metric.length) {
+        final next = math.min(distance + dashWidth, metric.length);
+        canvas.drawPath(metric.extractPath(distance, next), paint);
+        distance += dashWidth + dashSpace;
+      }
+    }
+  }
+
+  Offset _getCurveMidpoint(Offset p0, Offset p1, Offset p2, Offset p3) {
+    const t = 0.5;
+    const u = 1.0 - t;
+    final x = u * u * u * p0.dx + 3 * u * u * t * p1.dx + 3 * u * t * t * p2.dx + t * t * t * p3.dx;
+    final y = u * u * u * p0.dy + 3 * u * u * t * p1.dy + 3 * u * t * t * p2.dy + t * t * t * p3.dy;
+    return Offset(x, y);
+  }
+
+  void _drawSplitBadge(Canvas canvas, Offset center, String text) {
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: text,
+        style: const TextStyle(
+          fontSize: 9,
+          fontWeight: FontWeight.bold,
+          color: Color(0xFFFCA5A5),
+          letterSpacing: 0.4,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+
+    final padH = 7.0;
+    final padV = 3.0;
+    final rect = RRect.fromRectAndRadius(
+      Rect.fromCenter(
+        center: center,
+        width: textPainter.width + padH * 2,
+        height: textPainter.height + padV * 2,
+      ),
+      const Radius.circular(4),
+    );
+
+    canvas.drawRRect(rect, Paint()..color = const Color(0xFF1F1418));
+    canvas.drawRRect(
+      rect,
+      Paint()
+        ..color = const Color(0xFFEF4444).withValues(alpha: 0.85)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.0,
+    );
+
+    textPainter.paint(
+      canvas,
+      Offset(center.dx - textPainter.width / 2, center.dy - textPainter.height / 2),
+    );
   }
 
   @override

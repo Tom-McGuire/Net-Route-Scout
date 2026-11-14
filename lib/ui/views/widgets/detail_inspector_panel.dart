@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:net_route_scout/core/app_theme.dart';
 import 'package:net_route_scout/domain/models/network_node.dart';
+import 'package:net_route_scout/domain/models/stp_port_info.dart';
 import 'package:net_route_scout/ui/view_models/topology_view_model.dart';
 import 'edit_device_dialog.dart';
 
@@ -170,6 +171,54 @@ class DetailInspectorPanel extends StatelessWidget {
                   _buildMetaRow('Reverse DNS', node.hostname!),
                 if (node.sharedNotes != null && node.sharedNotes!.isNotEmpty)
                   _buildMetaRow('Notes', node.sharedNotes!),
+                if (node.isStpRootBridge || node.stpPriority != null || node.stpPorts.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  _buildMetaRow(
+                    'STP Role',
+                    node.isStpRootBridge
+                        ? '👑 Root Bridge${node.stpPriority != null ? ' (Prio ${node.stpPriority})' : ''}'
+                        : 'Non-Root${node.stpPriority != null ? ' (Prio ${node.stpPriority}, Cost ${node.stpRootCost ?? 0})' : ''}',
+                  ),
+                ],
+                if (node.isIgmpQuerier || node.igmpSnoopingEnabled) ...[
+                  _buildMetaRow(
+                    'IGMP Querier',
+                    node.isIgmpQuerier
+                        ? '📡 Active Querier (${node.igmpQuerierVersion ?? 'IGMPv2'})'
+                        : 'Snooping Enabled (Querier elsewhere)',
+                  ),
+                ],
+                if (node.stpPorts.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  const Text(
+                    'STP PORTS',
+                    style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: Colors.white54, letterSpacing: 0.6),
+                  ),
+                  const SizedBox(height: 4),
+                  Wrap(
+                    spacing: 4,
+                    runSpacing: 4,
+                    children: node.stpPorts.map((p) {
+                      final isBlk = p.state == StpPortState.blocking;
+                      final isFwd = p.state == StpPortState.forwarding;
+                      final badgeColor = isBlk
+                          ? const Color(0xFFEF4444)
+                          : (isFwd ? const Color(0xFF10B981) : Colors.grey);
+                      return Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: badgeColor.withValues(alpha: 0.14),
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(color: badgeColor.withValues(alpha: 0.45)),
+                        ),
+                        child: Text(
+                          '${p.interfaceName}: ${isBlk ? 'BLK' : (isFwd ? 'FWD' : p.state.label)}',
+                          style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w600, color: badgeColor),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ],
 
                 // Scan Subnet in ARP Scout Action Button
                 Builder(
