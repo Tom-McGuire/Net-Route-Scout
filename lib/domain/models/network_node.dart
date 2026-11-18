@@ -1,6 +1,9 @@
 import 'package:material_ui/material_ui.dart';
 import 'igmp_vlan_status.dart';
+import 'interface_health_stats.dart';
+import 'port_vlan_config.dart';
 import 'stp_port_info.dart';
+import 'switch_poe_status.dart';
 
 enum NodeType {
   localHost,
@@ -46,6 +49,12 @@ class NetworkNode {
   final bool igmpSnoopingEnabled;
   final List<IgmpVlanStatus> igmpVlans;
 
+  // VLAN, Interface Health & PoE telemetry
+  final Map<int, String> vlanNames;
+  final List<PortVlanConfig> portVlans;
+  final List<InterfaceHealthStats> interfaceHealth;
+  final SwitchPoeStatus? poeStatus;
+
   NetworkNode({
     required this.id,
     required this.ip,
@@ -77,6 +86,10 @@ class NetworkNode {
     this.igmpQuerierVersion,
     this.igmpSnoopingEnabled = false,
     this.igmpVlans = const [],
+    this.vlanNames = const {},
+    this.portVlans = const [],
+    this.interfaceHealth = const [],
+    this.poeStatus,
   }) : associatedTargets = associatedTargets ?? <String>{};
 
   NodeType get nodeType {
@@ -139,6 +152,10 @@ class NetworkNode {
     String? igmpQuerierVersion,
     bool? igmpSnoopingEnabled,
     List<IgmpVlanStatus>? igmpVlans,
+    Map<int, String>? vlanNames,
+    List<PortVlanConfig>? portVlans,
+    List<InterfaceHealthStats>? interfaceHealth,
+    SwitchPoeStatus? poeStatus,
   }) {
     return NetworkNode(
       id: id ?? this.id,
@@ -171,6 +188,10 @@ class NetworkNode {
       igmpQuerierVersion: igmpQuerierVersion ?? this.igmpQuerierVersion,
       igmpSnoopingEnabled: igmpSnoopingEnabled ?? this.igmpSnoopingEnabled,
       igmpVlans: igmpVlans ?? this.igmpVlans,
+      vlanNames: vlanNames ?? this.vlanNames,
+      portVlans: portVlans ?? this.portVlans,
+      interfaceHealth: interfaceHealth ?? this.interfaceHealth,
+      poeStatus: poeStatus ?? this.poeStatus,
     );
   }
 
@@ -203,5 +224,72 @@ class NetworkNode {
     'igmp_querier_version': igmpQuerierVersion,
     'igmp_snooping_enabled': igmpSnoopingEnabled,
     'igmp_vlans': igmpVlans.map((v) => v.toJson()).toList(),
+    'vlan_names': vlanNames.map((k, v) => MapEntry(k.toString(), v)),
+    'port_vlans': portVlans.map((p) => p.toJson()).toList(),
+    'interface_health': interfaceHealth.map((h) => h.toJson()).toList(),
+    'poe_status': poeStatus?.toJson(),
   };
+
+  factory NetworkNode.fromJson(Map<String, dynamic> json) {
+    final rawTargets = json['associated_targets'];
+    final rawStpPorts = json['stp_ports'];
+    final rawIgmpVlans = json['igmp_vlans'];
+    final rawVlanNames = json['vlan_names'];
+    final rawPortVlans = json['port_vlans'];
+    final rawHealth = json['interface_health'];
+    final rawPoe = json['poe_status'];
+
+    final parsedVlanNames = <int, String>{};
+    if (rawVlanNames is Map) {
+      for (final e in rawVlanNames.entries) {
+        final k = int.tryParse(e.key.toString());
+        if (k != null && e.value != null) {
+          parsedVlanNames[k] = e.value.toString();
+        }
+      }
+    }
+
+    return NetworkNode(
+      id: json['id'] as String? ?? json['ip'] as String? ?? '',
+      ip: json['ip'] as String? ?? '',
+      hostname: json['hostname'] as String?,
+      macAddress: json['mac_address'] as String?,
+      vendor: json['vendor'] as String?,
+      hopDepth: json['hop_depth'] as int? ?? 1,
+      isTarget: json['is_target'] as bool? ?? false,
+      isLocalHost: json['is_local_host'] as bool? ?? false,
+      isUnresponsive: json['is_unresponsive'] as bool? ?? false,
+      isSwitchNode: json['is_switch_node'] as bool? ?? false,
+      connectedSwitchId: json['connected_switch_id'] as String?,
+      switchPort: json['switch_port'] as String?,
+      switchModel: json['switch_model'] as String?,
+      rttMs: (json['rtt_ms'] as num?)?.toDouble(),
+      associatedTargets: rawTargets is List ? rawTargets.whereType<String>().toSet() : <String>{},
+      sharedDeviceName: json['shared_device_name'] as String?,
+      deviceCategoryKey: json['device_category'] as String?,
+      sharedNotes: json['shared_notes'] as String?,
+      isStpRootBridge: json['is_stp_root_bridge'] as bool? ?? false,
+      stpPriority: json['stp_priority'] as int?,
+      stpBridgeId: json['stp_bridge_id'] as String?,
+      stpDesignatedRootId: json['stp_designated_root_id'] as String?,
+      stpRootCost: json['stp_root_cost'] as int?,
+      stpPorts: rawStpPorts is List
+          ? rawStpPorts.whereType<Map<String, dynamic>>().map(StpPortInfo.fromJson).toList()
+          : const [],
+      isIgmpQuerier: json['is_igmp_querier'] as bool? ?? false,
+      igmpQuerierVersion: json['igmp_querier_version'] as String?,
+      igmpSnoopingEnabled: json['igmp_snooping_enabled'] as bool? ?? false,
+      igmpVlans: rawIgmpVlans is List
+          ? rawIgmpVlans.whereType<Map<String, dynamic>>().map(IgmpVlanStatus.fromJson).toList()
+          : const [],
+      vlanNames: parsedVlanNames,
+      portVlans: rawPortVlans is List
+          ? rawPortVlans.whereType<Map<String, dynamic>>().map(PortVlanConfig.fromJson).toList()
+          : const [],
+      interfaceHealth: rawHealth is List
+          ? rawHealth.whereType<Map<String, dynamic>>().map(InterfaceHealthStats.fromJson).toList()
+          : const [],
+      poeStatus: rawPoe is Map<String, dynamic> ? SwitchPoeStatus.fromJson(rawPoe) : null,
+    );
+  }
 }

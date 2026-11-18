@@ -8,6 +8,7 @@ import '../../core/app_theme.dart';
 import '../../core/constants.dart';
 import '../../data/repositories/topology_repository.dart';
 import '../../data/services/arp_service.dart';
+import '../../data/services/baseline_storage_service.dart';
 import '../../data/services/demo_data_generator.dart';
 import '../../data/services/export_service.dart';
 import '../../data/services/icmp_service.dart';
@@ -15,17 +16,23 @@ import '../../data/services/l2_role_sniffer_service.dart';
 import '../../data/services/network_adapter_service.dart';
 import '../../data/services/route_tracer_preferences_service.dart';
 import '../../data/services/shared_device_service.dart';
+import '../../data/services/topology_diff_engine.dart';
 import '../../data/services/traceroute_service.dart';
 import '../../data/services/inter_app_launcher.dart';
 import '../../domain/models/cancellation_token.dart';
 import '../../domain/models/igmp_vlan_status.dart';
 import '../../domain/models/inter_app_arguments.dart';
+import '../../domain/models/interface_health_stats.dart';
 import '../../domain/models/network_adapter_info.dart';
 import '../../domain/models/network_edge.dart';
 import '../../domain/models/network_node.dart';
+import '../../domain/models/port_vlan_config.dart';
 import '../../domain/models/scan_progress.dart';
 import '../../domain/models/stp_port_info.dart';
 import '../../domain/models/switch_discovery_info.dart';
+import '../../domain/models/switch_poe_status.dart';
+import '../../domain/models/topology_diff_result.dart';
+import '../../domain/models/topology_snapshot.dart';
 import '../../domain/models/trace_hop.dart';
 import '../../domain/models/trace_result.dart';
 import '../../domain/models/unknown_device_entry.dart';
@@ -82,6 +89,11 @@ class TopologyViewModel extends ChangeNotifier {
   Set<String> _explicitlyShownMacs = {};
   Set<String> _selectedDeviceKeys = {};
 
+  // Baseline Snapshot & Diff Mode (Issue #6)
+  TopologySnapshot? _activeBaseline;
+  bool _compareToBaseline = false;
+  bool _showDiffDrawer = false;
+
   // Getters
   List<NetworkAdapterInfo> get adapters => List.unmodifiable(_adapters);
   NetworkAdapterInfo? get selectedAdapter => _selectedAdapter;
@@ -105,6 +117,17 @@ class TopologyViewModel extends ChangeNotifier {
   bool get isScanning => _scanProgress.isScanning;
   L2ScanPhase get l2ScanPhase => _l2ScanPhase;
   L2CapturePermissionIssue? get l2PermissionIssue => _l2PermissionIssue;
+  TopologySnapshot? get activeBaseline => _activeBaseline;
+  bool get compareToBaseline => _compareToBaseline;
+  bool get showDiffDrawer => _showDiffDrawer;
+  TopologyDiffResult? get activeDiffResult {
+    if (!_compareToBaseline || _activeBaseline == null) return null;
+    return TopologyDiffEngine.compare(
+      baseline: _activeBaseline!,
+      currentNodes: _repository.nodes,
+      currentEdges: _repository.edges,
+    );
+  }
 
   List<String> get l2DiagnosticAlerts {
     final alerts = <String>[];
@@ -143,6 +166,44 @@ class TopologyViewModel extends ChangeNotifier {
       final querier = queriers.first;
       if (root.id != querier.id) {
         alerts.add('Misaligned STP Root & IGMP Querier: STP Root is "${root.displayName}" while IGMP Querier is "${querier.displayName}". Multicast traffic may traverse suboptimal paths.');
+      }
+    }
+
+    // 5. Trunk VLAN Mismatches & Link Health (Issues #4 & #5)
+    for (final edge in _repository.edges.values) {
+      final srcName = _repository.nodes[edge.sourceIp]?.displayName ?? edge.sourceIp;
+      final dstName = _repository.nodes[edge.targetIp]?.displayName ?? edge.targetIp;
+
+      final vlanRep = edge.vlanMismatch;
+      if (vlanRep != null && vlanRep.hasAnyMismatch) {
+        if (vlanRep.hasNativeVlanMismatch) {
+          alerts.add('VLAN Native PVID Mismatch: $srcName ↔ $dstName (PVID ${vlanRep.sideANativeVlan} ≠ ${vlanRep.sideBNativeVlan}).');
+        }
+        final pruned = <int>{...vlanRep.missingOnSideA, ...vlanRep.missingOnSideB}.toList()..sort();
+        if (pruned.isNotEmpty) {
+          alerts.add('Trunk VLAN Pruned: $srcName ↔ $dstName missing VLAN ${pruned.join(", ")}.');
+        }
+      }
+
+      if (edge.isHalfDuplex) {
+        alerts.add('Half-Duplex Trunk: $srcName ↔ $dstName negotiated Half-Duplex.');
+      } else if (edge.isDegradedSpeed) {
+        alerts.add('Degraded Trunk Speed: $srcName ↔ $dstName linked at ${edge.linkSpeedMbps} Mbps.');
+      }
+      if (edge.hasActiveErrors) {
+        alerts.add('Active Link Errors: $srcName ↔ $dstName (+${edge.inErrorsDelta} CRC/InErrors, +${edge.outDiscardsDelta} Drops).');
+      }
+    }
+
+    // 6. PoE Budget & Port Fault Warnings (Issue #7)
+    for (final sw in switches) {
+      final poe = sw.poeStatus;
+      if (poe == null) continue;
+      if (poe.isNearCapacity) {
+        alerts.add('PoE Budget High (${poe.utilizationPercent.round()}%): "${sw.displayName}" at ${poe.consumedWatts}W / ${poe.totalBudgetWatts}W.');
+      }
+      if (poe.hasPortFaults) {
+        alerts.add('PoE Port Fault on "${sw.displayName}": check powered device cabling/overload.');
       }
     }
 
@@ -457,6 +518,7 @@ class TopologyViewModel extends ChangeNotifier {
         switchLinks: prefs.customSwitchLinks,
         switchPorts: prefs.customSwitchPorts,
       );
+      _activeBaseline = await BaselineStorageService.loadBaseline();
     } catch (_) {}
 
     try {
@@ -1530,7 +1592,8 @@ class TopologyViewModel extends ChangeNotifier {
     );
     _repository.connectNodeToSwitch(ringEdgeSwitch.id, '10.0.2.1', portLabel: 'Fiber Trunk 1/26');
 
-    // Enrich Demo Switches with STP Root Bridge, Ring Split, and IGMP Querier telemetry
+    // Enrich Demo Switches with STP Root Bridge, Ring Split, IGMP Querier, VLAN, Health & PoE telemetry
+    final demoSampleTime = DateTime.now();
     final distNode = _repository.nodes['10.0.2.1'];
     if (distNode != null) {
       _repository.updateNodeDirect(distNode.copyWith(
@@ -1558,6 +1621,15 @@ class TopologyViewModel extends ChangeNotifier {
           StpPortInfo(bridgePort: 24, ifIndex: 24, interfaceName: 'Gi1/0/24', state: StpPortState.forwarding, role: StpPortRole.designated),
           StpPortInfo(bridgePort: 26, ifIndex: 26, interfaceName: 'Te1/0/26', state: StpPortState.forwarding, role: StpPortRole.designated),
         ],
+        vlanNames: const {1: 'MGMT', 10: 'CONTROL', 20: 'DANTE_AUDIO'},
+        portVlans: const [
+          PortVlanConfig(bridgePort: 24, ifIndex: 24, interfaceName: 'Uplink 1/24', nativePvid: 1, allowedVlans: {1, 10, 20}, untaggedVlans: {1}),
+          PortVlanConfig(bridgePort: 26, ifIndex: 26, interfaceName: 'Fiber Trunk 1/26', nativePvid: 1, allowedVlans: {1, 10, 20}, untaggedVlans: {1}),
+        ],
+        interfaceHealth: [
+          InterfaceHealthStats(ifIndex: 24, interfaceName: 'Uplink 1/24', speedMbps: 1000, duplex: DuplexMode.fullDuplex, sampledAt: demoSampleTime),
+          InterfaceHealthStats(ifIndex: 26, interfaceName: 'Fiber Trunk 1/26', speedMbps: 10000, duplex: DuplexMode.fullDuplex, sampledAt: demoSampleTime),
+        ],
       ));
     }
 
@@ -1582,6 +1654,23 @@ class TopologyViewModel extends ChangeNotifier {
           StpPortInfo(bridgePort: 24, ifIndex: 24, interfaceName: 'Uplink 1/24', state: StpPortState.forwarding, role: StpPortRole.root),
           StpPortInfo(bridgePort: 25, ifIndex: 25, interfaceName: 'Ring 1/25', state: StpPortState.blocking, role: StpPortRole.alternate),
         ],
+        vlanNames: const {1: 'MGMT', 10: 'CONTROL', 20: 'DANTE_AUDIO'},
+        portVlans: const [
+          PortVlanConfig(bridgePort: 24, ifIndex: 24, interfaceName: 'Uplink 1/24', nativePvid: 1, allowedVlans: {1, 10, 20}, untaggedVlans: {1}),
+          PortVlanConfig(bridgePort: 25, ifIndex: 25, interfaceName: 'Ring 1/25', nativePvid: 1, allowedVlans: {1, 10}, untaggedVlans: {1}),
+        ],
+        interfaceHealth: [
+          InterfaceHealthStats(ifIndex: 24, interfaceName: 'Uplink 1/24', speedMbps: 1000, duplex: DuplexMode.fullDuplex, sampledAt: demoSampleTime),
+          InterfaceHealthStats(ifIndex: 25, interfaceName: 'Ring 1/25', speedMbps: 100, duplex: DuplexMode.fullDuplex, inErrors: 14, inErrorsDelta: 3, sampledAt: demoSampleTime),
+        ],
+        poeStatus: const SwitchPoeStatus(
+          totalBudgetWatts: 195,
+          consumedWatts: 162,
+          ports: [
+            PoePortDetail(portIndex: 5, interfaceName: 'Port 5 (MacBook)', state: PoePortState.searching),
+            PoePortDetail(portIndex: 12, interfaceName: 'Port 12 (Conf TV)', state: PoePortState.deliveringPower, powerClass: 'Class 4', drawWatts: 24.5),
+          ],
+        ),
       ));
     }
 
@@ -1596,6 +1685,37 @@ class TopologyViewModel extends ChangeNotifier {
         stpPorts: const [
           StpPortInfo(bridgePort: 26, ifIndex: 26, interfaceName: 'Fiber 1/26', state: StpPortState.forwarding, role: StpPortRole.root),
         ],
+        vlanNames: const {1: 'MGMT', 10: 'CONTROL'},
+        portVlans: const [
+          // Intentionally prune VLAN 20 on Stage Left switch to demonstrate Issue #4 alert & badge
+          PortVlanConfig(bridgePort: 26, ifIndex: 26, interfaceName: 'Fiber 1/26', nativePvid: 1, allowedVlans: {1, 10}, untaggedVlans: {1}),
+        ],
+        interfaceHealth: [
+          InterfaceHealthStats(ifIndex: 26, interfaceName: 'Fiber 1/26', speedMbps: 10000, duplex: DuplexMode.fullDuplex, sampledAt: demoSampleTime),
+        ],
+        poeStatus: const SwitchPoeStatus(
+          totalBudgetWatts: 150,
+          consumedWatts: 68,
+          ports: [
+            PoePortDetail(portIndex: 1, interfaceName: 'Port 1 (sACN Node)', state: PoePortState.deliveringPower, powerClass: 'Class 3', drawWatts: 12.4),
+          ],
+        ),
+      ));
+    }
+
+    // Populate port names on demo switch-to-switch trunks for VLAN & speed correlation
+    final distToAccess = _repository.edges['10.0.2.1->${accessSwitch.id}'];
+    if (distToAccess != null) {
+      _repository.updateEdgeDirect(distToAccess.copyWith(
+        sourcePortName: 'Uplink 1/24',
+        targetPortName: 'Uplink 1/24',
+      ));
+    }
+    final distToRing = _repository.edges['10.0.2.1->${ringEdgeSwitch.id}'];
+    if (distToRing != null) {
+      _repository.updateEdgeDirect(distToRing.copyWith(
+        sourcePortName: 'Fiber Trunk 1/26',
+        targetPortName: 'Fiber 1/26',
       ));
     }
 
@@ -1606,6 +1726,8 @@ class TopologyViewModel extends ChangeNotifier {
       stpState: LinkStpState.blocking,
       blockingSwitchId: accessSwitch.id,
       blockingPortName: 'Ring 1/25',
+      sourcePortName: 'Fiber 1/26',
+      targetPortName: 'Ring 1/25',
     ));
     _repository.correlateStpEdges();
 
@@ -1627,6 +1749,65 @@ class TopologyViewModel extends ChangeNotifier {
       traces: _repository.traces,
       localHostIp: _repository.localHostIp,
     );
+  }
+
+  /// Captures and persists the current topology graph as the signed-off baseline.
+  Future<TopologySnapshot> saveCurrentAsBaseline({String? name}) async {
+    final now = DateTime.now();
+    final snap = TopologySnapshot(
+      id: 'baseline_${now.millisecondsSinceEpoch}',
+      name: name ?? 'Baseline ${now.toLocal().toString().substring(0, 16)}',
+      createdAt: now,
+      adapterName: _selectedAdapter?.displayName ?? 'Network Sweep',
+      nodes: _repository.nodes.values.toList(),
+      edges: _repository.edges.values.toList(),
+    );
+    _activeBaseline = snap;
+    _compareToBaseline = true;
+    await BaselineStorageService.saveBaseline(snap);
+    _notify();
+    return snap;
+  }
+
+  void toggleCompareToBaseline([bool? value]) {
+    if (_activeBaseline == null) return;
+    _compareToBaseline = value ?? !_compareToBaseline;
+    if (!_compareToBaseline) {
+      _showDiffDrawer = false;
+    } else {
+      _showDiffDrawer = true;
+    }
+    _notify();
+  }
+
+  void toggleDiffDrawer([bool? value]) {
+    _showDiffDrawer = value ?? !_showDiffDrawer;
+    _notify();
+  }
+
+  Future<void> clearBaseline() async {
+    _activeBaseline = null;
+    _compareToBaseline = false;
+    _showDiffDrawer = false;
+    await BaselineStorageService.clearBaseline();
+    _notify();
+  }
+
+  Future<String?> exportBaselineJson() async {
+    final baseline = _activeBaseline;
+    if (baseline == null) return null;
+    return BaselineStorageService.exportSnapshotToFile(baseline);
+  }
+
+  Future<bool> importBaselineJson() async {
+    final loaded = await BaselineStorageService.importSnapshotFromFile();
+    if (loaded == null) return false;
+    _activeBaseline = loaded;
+    _compareToBaseline = true;
+    _showDiffDrawer = true;
+    await BaselineStorageService.saveBaseline(loaded);
+    _notify();
+    return true;
   }
 
   /// Copies JSON to clipboard.

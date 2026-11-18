@@ -1,8 +1,13 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:dart_snmp/dart_snmp.dart';
 import '../../domain/models/igmp_vlan_status.dart';
+import '../../domain/models/interface_health_stats.dart';
+import '../../domain/models/port_vlan_config.dart';
 import '../../domain/models/stp_port_info.dart';
 import '../../domain/models/switch_discovery_info.dart';
+import '../../domain/models/switch_poe_status.dart';
 
 class SnmpSwitchService {
   static const Duration defaultTimeout = Duration(seconds: 4);
@@ -41,6 +46,28 @@ class SnmpSwitchService {
     final stpPortDesignatedBridges = <int, String>{};
     bool igmpSnoopingEnabled = false;
     final igmpVlans = <IgmpVlanStatus>[];
+
+    // Q-BRIDGE-MIB VLAN state (Issue #4)
+    final bridgePortPvid = <int, int>{};
+    final vlanNames = <int, String>{};
+    final vlanEgressPorts = <int, Set<int>>{};
+    final vlanUntaggedPorts = <int, Set<int>>{};
+
+    // IF-MIB & EtherLike-MIB state (Issue #5)
+    final ifHighSpeedMbps = <int, int>{};
+    final ifOperUp = <int, bool>{};
+    final ifInErrors = <int, int>{};
+    final ifOutErrors = <int, int>{};
+    final ifInDiscards = <int, int>{};
+    final ifOutDiscards = <int, int>{};
+    final ifDuplexModes = <int, DuplexMode>{};
+
+    // POWER-ETHERNET-MIB PoE state (Issue #7)
+    int poeTotalBudgetWatts = 0;
+    int poeConsumedWatts = 0;
+    final poePortStates = <int, PoePortState>{};
+    final poePortClasses = <int, String>{};
+    final poePortWatts = <int, double>{};
 
     try {
       // 1. System info: sysName.0 (1.3.6.1.2.1.1.5.0) and sysDescr.0 (1.3.6.1.2.1.1.1.0)
@@ -271,6 +298,207 @@ class SnmpSwitchService {
         } catch (_) {}
       }
 
+      // 8. Q-BRIDGE-MIB VLAN Membership & PVIDs (Issue #4)
+      try {
+        final pvidStream = session.walk(oid: Oid.fromString('1.3.6.1.2.1.17.7.1.4.5.1.1'));
+        await for (final msg in pvidStream) {
+          for (final vb in msg.pdu.varbinds) {
+            final bPort = int.tryParse(vb.oid.toString().split('.').last);
+            final pvid = int.tryParse(vb.value.toString());
+            if (bPort != null && pvid != null && pvid > 0) {
+              bridgePortPvid[bPort] = pvid;
+            }
+          }
+        }
+      } catch (_) {}
+
+      try {
+        final vlanNameStream = session.walk(oid: Oid.fromString('1.3.6.1.2.1.17.7.1.4.3.1.1'));
+        await for (final msg in vlanNameStream) {
+          for (final vb in msg.pdu.varbinds) {
+            final vid = int.tryParse(vb.oid.toString().split('.').last);
+            final name = vb.value.toString().trim();
+            if (vid != null && name.isNotEmpty) {
+              vlanNames[vid] = name;
+            }
+          }
+        }
+      } catch (_) {}
+
+      try {
+        final egressStream = session.walk(oid: Oid.fromString('1.3.6.1.2.1.17.7.1.4.2.1.4'));
+        await for (final msg in egressStream) {
+          for (final vb in msg.pdu.varbinds) {
+            final vid = int.tryParse(vb.oid.toString().split('.').last);
+            final bytes = extractSnmpOctetBytes(vb.value);
+            if (vid != null && bytes.isNotEmpty) {
+              vlanEgressPorts
+                  .putIfAbsent(vid, () => <int>{})
+                  .addAll(decodePortListBitmask(bytes));
+            }
+          }
+        }
+      } catch (_) {}
+
+      try {
+        final untaggedStream = session.walk(oid: Oid.fromString('1.3.6.1.2.1.17.7.1.4.2.1.5'));
+        await for (final msg in untaggedStream) {
+          for (final vb in msg.pdu.varbinds) {
+            final vid = int.tryParse(vb.oid.toString().split('.').last);
+            final bytes = extractSnmpOctetBytes(vb.value);
+            if (vid != null && bytes.isNotEmpty) {
+              vlanUntaggedPorts
+                  .putIfAbsent(vid, () => <int>{})
+                  .addAll(decodePortListBitmask(bytes));
+            }
+          }
+        }
+      } catch (_) {}
+
+      // 9. IF-MIB & EtherLike-MIB Speed, Duplex & Errors (Issue #5)
+      try {
+        final speedStream = session.walk(oid: Oid.fromString('1.3.6.1.2.1.31.1.1.1.15'));
+        await for (final msg in speedStream) {
+          for (final vb in msg.pdu.varbinds) {
+            final ifIdx = int.tryParse(vb.oid.toString().split('.').last);
+            final speed = int.tryParse(vb.value.toString());
+            if (ifIdx != null && speed != null) {
+              ifHighSpeedMbps[ifIdx] = speed;
+            }
+          }
+        }
+      } catch (_) {}
+
+      try {
+        final operStream = session.walk(oid: Oid.fromString('1.3.6.1.2.1.2.2.1.8'));
+        await for (final msg in operStream) {
+          for (final vb in msg.pdu.varbinds) {
+            final ifIdx = int.tryParse(vb.oid.toString().split('.').last);
+            final status = int.tryParse(vb.value.toString());
+            if (ifIdx != null && status != null) {
+              ifOperUp[ifIdx] = status == 1;
+            }
+          }
+        }
+      } catch (_) {}
+
+      try {
+        final inDiscardsStream = session.walk(oid: Oid.fromString('1.3.6.1.2.1.2.2.1.13'));
+        await for (final msg in inDiscardsStream) {
+          for (final vb in msg.pdu.varbinds) {
+            final ifIdx = int.tryParse(vb.oid.toString().split('.').last);
+            final val = int.tryParse(vb.value.toString());
+            if (ifIdx != null && val != null) ifInDiscards[ifIdx] = val;
+          }
+        }
+      } catch (_) {}
+
+      try {
+        final inErrStream = session.walk(oid: Oid.fromString('1.3.6.1.2.1.2.2.1.14'));
+        await for (final msg in inErrStream) {
+          for (final vb in msg.pdu.varbinds) {
+            final ifIdx = int.tryParse(vb.oid.toString().split('.').last);
+            final val = int.tryParse(vb.value.toString());
+            if (ifIdx != null && val != null) ifInErrors[ifIdx] = val;
+          }
+        }
+      } catch (_) {}
+
+      try {
+        final outDiscardsStream = session.walk(oid: Oid.fromString('1.3.6.1.2.1.2.2.1.19'));
+        await for (final msg in outDiscardsStream) {
+          for (final vb in msg.pdu.varbinds) {
+            final ifIdx = int.tryParse(vb.oid.toString().split('.').last);
+            final val = int.tryParse(vb.value.toString());
+            if (ifIdx != null && val != null) ifOutDiscards[ifIdx] = val;
+          }
+        }
+      } catch (_) {}
+
+      try {
+        final outErrStream = session.walk(oid: Oid.fromString('1.3.6.1.2.1.2.2.1.20'));
+        await for (final msg in outErrStream) {
+          for (final vb in msg.pdu.varbinds) {
+            final ifIdx = int.tryParse(vb.oid.toString().split('.').last);
+            final val = int.tryParse(vb.value.toString());
+            if (ifIdx != null && val != null) ifOutErrors[ifIdx] = val;
+          }
+        }
+      } catch (_) {}
+
+      try {
+        final duplexStream = session.walk(oid: Oid.fromString('1.3.6.1.2.1.10.7.2.1.19'));
+        await for (final msg in duplexStream) {
+          for (final vb in msg.pdu.varbinds) {
+            final ifIdx = int.tryParse(vb.oid.toString().split('.').last);
+            final code = int.tryParse(vb.value.toString());
+            if (ifIdx != null && code != null) {
+              ifDuplexModes[ifIdx] = DuplexMode.fromCode(code);
+            }
+          }
+        }
+      } catch (_) {}
+
+      // 10. POWER-ETHERNET-MIB Chassis & Per-Port PoE Telemetry (Issue #7)
+      try {
+        final budgetStream = session.walk(oid: Oid.fromString('1.3.6.1.2.1.105.1.3.1.1.2'));
+        await for (final msg in budgetStream) {
+          for (final vb in msg.pdu.varbinds) {
+            final watts = int.tryParse(vb.value.toString());
+            if (watts != null && watts > 0) poeTotalBudgetWatts += watts;
+          }
+        }
+      } catch (_) {}
+
+      try {
+        final drawStream = session.walk(oid: Oid.fromString('1.3.6.1.2.1.105.1.3.1.1.4'));
+        await for (final msg in drawStream) {
+          for (final vb in msg.pdu.varbinds) {
+            final watts = int.tryParse(vb.value.toString());
+            if (watts != null && watts >= 0) poeConsumedWatts += watts;
+          }
+        }
+      } catch (_) {}
+
+      try {
+        final portStateStream = session.walk(oid: Oid.fromString('1.3.6.1.2.1.105.1.1.1.6'));
+        await for (final msg in portStateStream) {
+          for (final vb in msg.pdu.varbinds) {
+            final pNum = int.tryParse(vb.oid.toString().split('.').last);
+            final code = int.tryParse(vb.value.toString());
+            if (pNum != null && code != null) {
+              poePortStates[pNum] = PoePortState.fromCode(code);
+            }
+          }
+        }
+      } catch (_) {}
+
+      try {
+        final portClassStream = session.walk(oid: Oid.fromString('1.3.6.1.2.1.105.1.1.1.10'));
+        await for (final msg in portClassStream) {
+          for (final vb in msg.pdu.varbinds) {
+            final pNum = int.tryParse(vb.oid.toString().split('.').last);
+            final classCode = int.tryParse(vb.value.toString());
+            if (pNum != null && classCode != null) {
+              poePortClasses[pNum] = 'Class ${classCode - 1}';
+            }
+          }
+        }
+      } catch (_) {}
+
+      try {
+        final ciscoMwStream = session.walk(oid: Oid.fromString('1.3.6.1.4.1.9.9.402.1.2.1.9'));
+        await for (final msg in ciscoMwStream) {
+          for (final vb in msg.pdu.varbinds) {
+            final pNum = int.tryParse(vb.oid.toString().split('.').last);
+            final mw = int.tryParse(vb.value.toString());
+            if (pNum != null && mw != null && mw >= 0) {
+              poePortWatts[pNum] = mw / 1000.0;
+            }
+          }
+        }
+      } catch (_) {}
+
     } finally {
       session.close();
     }
@@ -304,6 +532,89 @@ class SnmpSwitchService {
     }
     stpPorts.sort((a, b) => a.bridgePort.compareTo(b.bridgePort));
 
+    // Assemble PortVlanConfig entries
+    final allBridgePorts = <int>{
+      ...bridgePortPvid.keys,
+      ...ports.keys,
+      for (final s in vlanEgressPorts.values) ...s,
+    };
+    final portVlans = <PortVlanConfig>[];
+    for (final bPort in allBridgePorts) {
+      final allowed = <int>{
+        if (bridgePortPvid.containsKey(bPort)) bridgePortPvid[bPort]!,
+        for (final e in vlanEgressPorts.entries)
+          if (e.value.contains(bPort)) e.key,
+      };
+      final untagged = <int>{
+        if (bridgePortPvid.containsKey(bPort)) bridgePortPvid[bPort]!,
+        for (final e in vlanUntaggedPorts.entries)
+          if (e.value.contains(bPort)) e.key,
+      };
+      if (allowed.isEmpty && !bridgePortPvid.containsKey(bPort)) continue;
+      final ifIdx = ports[bPort]?.ifIndex ?? bPort;
+      final ifName = ports[bPort]?.portName ?? ifIndexToName[ifIdx] ?? 'Port $bPort';
+      portVlans.add(PortVlanConfig(
+        bridgePort: bPort,
+        ifIndex: ifIdx,
+        interfaceName: ifName,
+        nativePvid: bridgePortPvid[bPort] ?? (untagged.isNotEmpty ? untagged.first : 1),
+        allowedVlans: allowed,
+        untaggedVlans: untagged,
+      ));
+    }
+    portVlans.sort((a, b) => a.bridgePort.compareTo(b.bridgePort));
+
+    // Assemble InterfaceHealthStats entries
+    final now = DateTime.now();
+    final allIfIndices = <int>{
+      ...ifHighSpeedMbps.keys,
+      ...ifOperUp.keys,
+      ...ifInErrors.keys,
+      ...ifInDiscards.keys,
+    };
+    final interfaceHealth = <InterfaceHealthStats>[];
+    for (final ifIdx in allIfIndices) {
+      final bPort = ifIndexToPort[ifIdx];
+      final ifName = ifIndexToName[ifIdx] ??
+          (bPort != null ? ports[bPort]?.portName : null) ??
+          'Port $ifIdx';
+      interfaceHealth.add(InterfaceHealthStats(
+        ifIndex: ifIdx,
+        interfaceName: ifName,
+        speedMbps: ifHighSpeedMbps[ifIdx] ?? 0,
+        isOperUp: ifOperUp[ifIdx] ?? true,
+        duplex: ifDuplexModes[ifIdx] ?? DuplexMode.unknown,
+        inErrors: ifInErrors[ifIdx] ?? 0,
+        outErrors: ifOutErrors[ifIdx] ?? 0,
+        inDiscards: ifInDiscards[ifIdx] ?? 0,
+        outDiscards: ifOutDiscards[ifIdx] ?? 0,
+        sampledAt: now,
+      ));
+    }
+    interfaceHealth.sort((a, b) => a.ifIndex.compareTo(b.ifIndex));
+
+    // Assemble SwitchPoeStatus if PSE reported
+    SwitchPoeStatus? poeStatus;
+    if (poeTotalBudgetWatts > 0 || poePortStates.isNotEmpty) {
+      final poePorts = poePortStates.entries.map((e) {
+        final pIdx = e.key;
+        final ifName = ports[pIdx]?.portName ?? ifIndexToName[pIdx] ?? 'Port $pIdx';
+        return PoePortDetail(
+          portIndex: pIdx,
+          interfaceName: ifName,
+          state: e.value,
+          powerClass: poePortClasses[pIdx],
+          drawWatts: poePortWatts[pIdx],
+        );
+      }).toList()
+        ..sort((a, b) => a.portIndex.compareTo(b.portIndex));
+      poeStatus = SwitchPoeStatus(
+        totalBudgetWatts: poeTotalBudgetWatts,
+        consumedWatts: poeConsumedWatts,
+        ports: poePorts,
+      );
+    }
+
     return SwitchDiscoveryResult(
       switchIp: targetIp,
       sysName: sysName,
@@ -319,7 +630,32 @@ class SnmpSwitchService {
       stpPorts: stpPorts,
       igmpSnoopingEnabled: igmpSnoopingEnabled,
       igmpVlans: igmpVlans,
+      vlanNames: vlanNames,
+      portVlans: portVlans,
+      interfaceHealth: interfaceHealth,
+      poeStatus: poeStatus,
     );
+  }
+
+  /// Decodes IEEE 802.1Q PortList bitmask into 1-based bridge port IDs.
+  static Set<int> decodePortListBitmask(Uint8List bytes) =>
+      PortVlanConfig.decodePortListBitmask(bytes);
+
+  /// Extracts raw bytes from a `dart_snmp` OCTET_STRING varbind value
+  /// (which base64-encodes values containing bytes > 127).
+  static Uint8List extractSnmpOctetBytes(dynamic value) {
+    if (value is Uint8List) return value;
+    if (value is List<int>) return Uint8List.fromList(value);
+    if (value is String && value.isNotEmpty) {
+      try {
+        final decoded = base64Decode(value);
+        if (base64Encode(decoded) == value && decoded.any((b) => b > 127)) {
+          return Uint8List.fromList(decoded);
+        }
+      } catch (_) {}
+      return Uint8List.fromList(value.codeUnits.map((c) => c & 0xFF).toList());
+    }
+    return Uint8List(0);
   }
 
   /// Parses an 8-byte STP Bridge ID (e.g. "0x8000001122334455" or "80 00 00 11 22 33 44 55").

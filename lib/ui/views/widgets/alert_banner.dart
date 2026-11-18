@@ -116,9 +116,14 @@ class AlertBanner extends StatelessWidget {
           const Icon(Icons.info_outline, size: 16, color: Color(0xFFF59E0B)),
           const SizedBox(width: 10),
           Expanded(
-            child: Text(
-              displayMessage,
-              style: const TextStyle(fontSize: 12, color: Color(0xFFF59E0B)),
+            child: Tooltip(
+              message: displayMessage,
+              child: Text(
+                displayMessage,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12, color: Color(0xFFF59E0B)),
+              ),
             ),
           ),
           IconButton(

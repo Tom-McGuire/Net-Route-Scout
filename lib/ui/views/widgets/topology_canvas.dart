@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:net_route_scout/core/app_theme.dart';
 import 'package:net_route_scout/domain/models/network_edge.dart';
 import 'package:net_route_scout/domain/models/network_node.dart';
+import 'package:net_route_scout/domain/models/topology_diff_result.dart';
 import 'package:net_route_scout/ui/view_models/topology_view_model.dart';
 import 'package:provider/provider.dart';
 import 'connect_switch_dialog.dart';
@@ -256,8 +257,17 @@ class _TopologyCanvasState extends State<TopologyCanvas> {
   @override
   Widget build(BuildContext context) {
     final vm = context.watch<TopologyViewModel>();
-    final nodes = vm.nodes;
-    final edges = vm.edges;
+    final diffResult = vm.activeDiffResult;
+    final nodes = <String, NetworkNode>{
+      ...vm.nodes,
+      if (diffResult != null)
+        for (final g in diffResult.ghostNodes) g.id: g,
+    };
+    final edges = <String, NetworkEdge>{
+      ...vm.edges,
+      if (diffResult != null)
+        for (final g in diffResult.ghostEdges) g.edgeId: g,
+    };
     final selectedNodeId = vm.selectedNodeId;
     final activeNodeIds = vm.activePathNodeIds;
     final activeEdgeIds = vm.activePathEdgeIds;
@@ -271,7 +281,8 @@ class _TopologyCanvasState extends State<TopologyCanvas> {
     // 1. Group nodes by layer/depth using dynamic topological depth
     final layers = <int, List<NetworkNode>>{};
     for (final node in nodes.values) {
-      final depth = vm.getEffectiveNodeDepth(node.id);
+      final isGhost = diffResult?.nodeStatuses[node.id] == DiffChangeType.missing;
+      final depth = isGhost ? node.hopDepth : vm.getEffectiveNodeDepth(node.id);
       layers.putIfAbsent(depth, () => []).add(node);
     }
 
@@ -339,6 +350,7 @@ class _TopologyCanvasState extends State<TopologyCanvas> {
                     nodePositions: nodePositions,
                     activeEdgeIds: activeEdgeIds,
                     commonEdgeIds: vm.commonPathEdgeIds,
+                    edgeDiffStatuses: diffResult?.edgeStatuses ?? const {},
                     hasSelection: hasSelection,
                     cardWidth: cardWidth,
                     cardHeight: cardHeight,
@@ -352,6 +364,10 @@ class _TopologyCanvasState extends State<TopologyCanvas> {
                       final isSearchMatch = hasSearch && matchingNodeIds.contains(node.id);
                       final isDimmedBySearch = hasSearch && !isSearchMatch;
                       final isDimmedBySelection = hasSelection && !activeNodeIds.contains(node.id);
+                      final diffStatus = diffResult?.nodeStatuses[node.id];
+                      final isBaselineDimmed = diffResult != null &&
+                          diffResult.hasDrift &&
+                          (diffStatus == null || diffStatus == DiffChangeType.unchanged);
 
                       return Positioned(
                         left: nodePositions[node.id]!.dx,
@@ -361,7 +377,9 @@ class _TopologyCanvasState extends State<TopologyCanvas> {
                           isSelected: selectedNodeId == node.id,
                           isOnActivePath: activeNodeIds.contains(node.id),
                           isDimmed: isDimmedBySelection || isDimmedBySearch,
+                          isBaselineDimmed: isBaselineDimmed,
                           isSearchMatch: isSearchMatch,
+                          diffStatus: diffStatus,
                           onTap: () {
                             if (selectedNodeId == node.id) {
                               vm.clearSelection();
@@ -567,6 +585,7 @@ class _TopologyEdgesPainter extends CustomPainter {
   final Map<String, Offset> nodePositions;
   final Set<String> activeEdgeIds;
   final Set<String> commonEdgeIds;
+  final Map<String, DiffChangeType> edgeDiffStatuses;
   final bool hasSelection;
   final double cardWidth;
   final double cardHeight;
@@ -576,6 +595,7 @@ class _TopologyEdgesPainter extends CustomPainter {
     required this.nodePositions,
     required this.activeEdgeIds,
     this.commonEdgeIds = const {},
+    this.edgeDiffStatuses = const {},
     required this.hasSelection,
     required this.cardWidth,
     required this.cardHeight,
@@ -617,18 +637,34 @@ class _TopologyEdgesPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeCap = StrokeCap.round;
 
-      if (edge.stpState == LinkStpState.blocking) {
-        // STP Ring Split: dashed crimson/amber line with midpoint pill
+      final isMissingDiff = edgeDiffStatuses[edge.edgeId] == DiffChangeType.missing;
+
+      if (isMissingDiff || edge.stpState == LinkStpState.blocking) {
+        // STP Ring Split or Missing Baseline Edge: dashed crimson/amber line with midpoint pill
         const splitColor = Color(0xFFEF4444);
         paint
           ..color = isDimmed ? splitColor.withValues(alpha: 0.25) : splitColor.withValues(alpha: 0.85)
           ..strokeWidth = 2.2;
 
         _drawDashedPath(canvas, path, paint, dashWidth: 7, dashSpace: 5);
+      } else if (edge.hasActiveErrors || edge.isDegradedSpeed || edge.isHalfDuplex || edge.hasVlanMismatch) {
+        // Amber/warning edge highlight for degraded trunk speed, CRC errors, or VLAN mismatch
+        const warnColor = Color(0xFFF59E0B);
+        paint
+          ..color = isDimmed ? warnColor.withValues(alpha: 0.25) : warnColor.withValues(alpha: 0.9)
+          ..strokeWidth = isDimmed ? 1.5 : 2.6;
 
+        if (!isDimmed && edge.hasActiveErrors) {
+          final pulsePaint = Paint()
+            ..style = PaintingStyle.stroke
+            ..color = warnColor.withValues(alpha: 0.45)
+            ..strokeWidth = 7.0
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4.0);
+          canvas.drawPath(path, pulsePaint);
+        }
+        canvas.drawPath(path, paint);
         if (!isDimmed) {
-          final midPoint = _getCurveMidpoint(start, controlPoint1, controlPoint2, end);
-          _drawSplitBadge(canvas, midPoint, '✂ STP SPLIT (BLK)');
+          _drawHorizontalArrowhead(canvas, end, warnColor, 7.5);
         }
       } else if (isCommon) {
         // Glowing prominent common network path edge (Amber)
@@ -691,6 +727,62 @@ class _TopologyEdgesPainter extends CustomPainter {
           _drawHorizontalArrowhead(canvas, end, const Color(0xFF38BDF8).withValues(alpha: 0.6), 6.5);
         }
       }
+
+      if (!isDimmed) {
+        final midPoint = _getCurveMidpoint(start, controlPoint1, controlPoint2, end);
+        final badges = <({String text, Color textColor, Color bg, Color border})>[];
+        if (isMissingDiff) {
+          badges.add((
+            text: 'MISSING LINK',
+            textColor: const Color(0xFFFCA5A5),
+            bg: const Color(0xFF1F1418),
+            border: const Color(0xFFEF4444).withValues(alpha: 0.85),
+          ));
+        }
+        if (edge.stpState == LinkStpState.blocking) {
+          badges.add((
+            text: '✂ STP SPLIT (BLK)',
+            textColor: const Color(0xFFFCA5A5),
+            bg: const Color(0xFF1F1418),
+            border: const Color(0xFFEF4444).withValues(alpha: 0.85),
+          ));
+        }
+        if (edge.hasVlanMismatch) {
+          badges.add((
+            text: '⚠ VLAN MISMATCH',
+            textColor: const Color(0xFFFDE68A),
+            bg: const Color(0xFF231C10),
+            border: const Color(0xFFF59E0B).withValues(alpha: 0.85),
+          ));
+        }
+        final speedLabel = edge.speedBadgeLabel;
+        if (speedLabel != null) {
+          final isWarnSpeed = edge.isDegradedSpeed || edge.isHalfDuplex || edge.hasActiveErrors;
+          final errSuffix = edge.hasActiveErrors ? ' (+${edge.inErrorsDelta} ERR)' : '';
+          badges.add((
+            text: '$speedLabel$errSuffix',
+            textColor: isWarnSpeed ? const Color(0xFFFDE68A) : const Color(0xFF6EE7B7),
+            bg: isWarnSpeed ? const Color(0xFF231C10) : const Color(0xFF0F201B),
+            border: (isWarnSpeed ? const Color(0xFFF59E0B) : const Color(0xFF10B981)).withValues(alpha: 0.7),
+          ));
+        }
+
+        if (badges.isNotEmpty) {
+          const stepY = 18.0;
+          final startY = midPoint.dy - ((badges.length - 1) * stepY) / 2;
+          for (var i = 0; i < badges.length; i++) {
+            final b = badges[i];
+            _drawEdgeBadge(
+              canvas,
+              Offset(midPoint.dx, startY + i * stepY),
+              b.text,
+              textColor: b.textColor,
+              bgColor: b.bg,
+              borderColor: b.border,
+            );
+          }
+        }
+      }
     }
   }
 
@@ -728,22 +820,29 @@ class _TopologyEdgesPainter extends CustomPainter {
     return Offset(x, y);
   }
 
-  void _drawSplitBadge(Canvas canvas, Offset center, String text) {
+  void _drawEdgeBadge(
+    Canvas canvas,
+    Offset center,
+    String text, {
+    required Color textColor,
+    required Color bgColor,
+    required Color borderColor,
+  }) {
     final textPainter = TextPainter(
       text: TextSpan(
         text: text,
-        style: const TextStyle(
-          fontSize: 9,
+        style: TextStyle(
+          fontSize: 8.5,
           fontWeight: FontWeight.bold,
-          color: Color(0xFFFCA5A5),
-          letterSpacing: 0.4,
+          color: textColor,
+          letterSpacing: 0.35,
         ),
       ),
       textDirection: TextDirection.ltr,
     )..layout();
 
-    final padH = 7.0;
-    final padV = 3.0;
+    const padH = 6.0;
+    const padV = 2.5;
     final rect = RRect.fromRectAndRadius(
       Rect.fromCenter(
         center: center,
@@ -753,11 +852,11 @@ class _TopologyEdgesPainter extends CustomPainter {
       const Radius.circular(4),
     );
 
-    canvas.drawRRect(rect, Paint()..color = const Color(0xFF1F1418));
+    canvas.drawRRect(rect, Paint()..color = bgColor);
     canvas.drawRRect(
       rect,
       Paint()
-        ..color = const Color(0xFFEF4444).withValues(alpha: 0.85)
+        ..color = borderColor
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.0,
     );
@@ -772,6 +871,7 @@ class _TopologyEdgesPainter extends CustomPainter {
   bool shouldRepaint(covariant _TopologyEdgesPainter oldDelegate) {
     return oldDelegate.edges != edges ||
         oldDelegate.hasSelection != hasSelection ||
-        oldDelegate.activeEdgeIds != activeEdgeIds;
+        oldDelegate.activeEdgeIds != activeEdgeIds ||
+        oldDelegate.edgeDiffStatuses != edgeDiffStatuses;
   }
 }

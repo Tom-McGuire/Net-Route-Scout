@@ -1,7 +1,10 @@
 import 'dart:collection';
+import 'dart:math' as math;
 import 'package:material_ui/material_ui.dart';
+import '../../domain/models/interface_health_stats.dart';
 import '../../domain/models/network_edge.dart';
 import '../../domain/models/network_node.dart';
+import '../../domain/models/port_vlan_config.dart';
 import '../../domain/models/stp_port_info.dart';
 import '../../domain/models/switch_discovery_info.dart';
 import '../../domain/models/trace_hop.dart';
@@ -704,8 +707,8 @@ class TopologyRepository {
     _edges[updatedEdge.edgeId] = updatedEdge;
   }
 
-  /// Applies BRIDGE-MIB STP & IGMP Querier telemetry discovered via SNMP to [switchNodeId]
-  /// and correlates ring split edges and active querier nodes.
+  /// Applies BRIDGE-MIB STP, IGMP, Q-BRIDGE-MIB VLAN, IF-MIB health, and PoE
+  /// telemetry discovered via SNMP to [switchNodeId] and correlates edges.
   void applyStpAndIgmpFromSnmp(String switchNodeId, SwitchDiscoveryResult result) {
     final node = _nodes[switchNodeId];
     if (node == null) return;
@@ -714,6 +717,17 @@ class TopologyRepository {
     final querierVer = result.igmpVlans.isNotEmpty
         ? 'IGMPv${result.igmpVlans.first.igmpVersion}'
         : node.igmpQuerierVersion;
+
+    // Compute delta counters against previous poll sample for InterfaceHealthStats
+    final mergedHealth = <InterfaceHealthStats>[];
+    if (result.interfaceHealth.isNotEmpty) {
+      final prevByIdx = {for (final h in node.interfaceHealth) h.ifIndex: h};
+      for (final h in result.interfaceHealth) {
+        mergedHealth.add(h.withPreviousSample(prevByIdx[h.ifIndex]));
+      }
+    } else {
+      mergedHealth.addAll(node.interfaceHealth);
+    }
 
     _nodes[switchNodeId] = node.copyWith(
       isStpRootBridge: result.isStpRootBridge || node.isStpRootBridge,
@@ -728,6 +742,10 @@ class TopologyRepository {
       igmpVlans: result.igmpVlans.isNotEmpty ? result.igmpVlans : node.igmpVlans,
       isIgmpQuerier: isLocalQuerier || node.isIgmpQuerier,
       igmpQuerierVersion: isLocalQuerier ? querierVer : node.igmpQuerierVersion,
+      vlanNames: result.vlanNames.isNotEmpty ? result.vlanNames : node.vlanNames,
+      portVlans: result.portVlans.isNotEmpty ? result.portVlans : node.portVlans,
+      interfaceHealth: mergedHealth,
+      poeStatus: result.poeStatus ?? node.poeStatus,
     );
 
     // Cross-correlate active Querier IP with any other switch/host node
@@ -833,6 +851,109 @@ class TopologyRepository {
           trafficDirectionTargetNodeId: srcCost <= dstCost ? dstNode.id : srcNode.id,
         );
       }
+    }
+
+    correlateSwitchEdges();
+  }
+
+  /// Compares two trunk port VLAN configs for native PVID or allowed VLAN mismatches.
+  static VlanMismatchReport compareTrunkPortVlans(
+    PortVlanConfig portA,
+    PortVlanConfig portB,
+  ) {
+    final nativeMismatch = portA.nativePvid != portB.nativePvid;
+    final missingOnB = portA.allowedVlans.difference(portB.allowedVlans);
+    final missingOnA = portB.allowedVlans.difference(portA.allowedVlans);
+    return VlanMismatchReport(
+      hasNativeVlanMismatch: nativeMismatch,
+      sideANativeVlan: portA.nativePvid,
+      sideBNativeVlan: portB.nativePvid,
+      missingOnSideA: missingOnA,
+      missingOnSideB: missingOnB,
+      sideAPortName: portA.interfaceName,
+      sideBPortName: portB.interfaceName,
+    );
+  }
+
+  PortVlanConfig? _findPortVlan(NetworkNode node, String? portName, {bool fallbackTrunk = false}) {
+    if (node.portVlans.isEmpty) return null;
+    if (portName != null && portName.isNotEmpty) {
+      final norm = portName.toLowerCase();
+      for (final p in node.portVlans) {
+        if (p.interfaceName.toLowerCase() == norm || norm.contains(p.interfaceName.toLowerCase())) {
+          return p;
+        }
+      }
+    }
+    if (fallbackTrunk) {
+      return node.portVlans.where((p) => p.isTrunk).firstOrNull;
+    }
+    return null;
+  }
+
+  InterfaceHealthStats? _findPortHealth(NetworkNode node, String? portName) {
+    if (node.interfaceHealth.isEmpty || portName == null || portName.isEmpty) return null;
+    final norm = portName.toLowerCase();
+    for (final h in node.interfaceHealth) {
+      if (h.interfaceName.toLowerCase() == norm || norm.contains(h.interfaceName.toLowerCase())) {
+        return h;
+      }
+    }
+    return null;
+  }
+
+  /// Correlates VLAN trunk mismatches and interface speed/duplex/errors onto switch edges.
+  void correlateSwitchEdges() {
+    for (final edgeKey in _edges.keys.toList()) {
+      var edge = _edges[edgeKey]!;
+      final srcNode = _nodes[edge.sourceIp];
+      final dstNode = _nodes[edge.targetIp];
+      if (srcNode == null || dstNode == null) continue;
+      if (!srcNode.isSwitch || !dstNode.isSwitch) continue;
+
+      final srcPortName = edge.sourcePortName ?? dstNode.switchPort;
+      final dstPortName = edge.targetPortName ?? edge.blockingPortName;
+
+      // 1. VLAN trunk mismatch correlation (only when both sides have matching port configs)
+      final portA = _findPortVlan(srcNode, srcPortName, fallbackTrunk: srcNode.portVlans.length == 1);
+      final portB = _findPortVlan(dstNode, dstPortName, fallbackTrunk: dstNode.portVlans.length == 1);
+      VlanMismatchReport? report = edge.vlanMismatch;
+      if (portA != null && portB != null) {
+        report = compareTrunkPortVlans(portA, portB);
+      }
+
+      // 2. Link speed, duplex & error delta correlation
+      final healthA = _findPortHealth(srcNode, srcPortName);
+      final healthB = _findPortHealth(dstNode, dstPortName);
+
+      int? effectiveSpeed = edge.linkSpeedMbps;
+      if (healthA != null && healthB != null && healthA.speedMbps > 0 && healthB.speedMbps > 0) {
+        effectiveSpeed = math.min(healthA.speedMbps, healthB.speedMbps);
+      } else if (healthA != null && healthA.speedMbps > 0) {
+        effectiveSpeed = healthA.speedMbps;
+      } else if (healthB != null && healthB.speedMbps > 0) {
+        effectiveSpeed = healthB.speedMbps;
+      }
+
+      DuplexMode duplex = edge.linkDuplex;
+      if (healthA?.duplex == DuplexMode.halfDuplex || healthB?.duplex == DuplexMode.halfDuplex) {
+        duplex = DuplexMode.halfDuplex;
+      } else if (healthA?.duplex == DuplexMode.fullDuplex || healthB?.duplex == DuplexMode.fullDuplex) {
+        duplex = DuplexMode.fullDuplex;
+      }
+
+      final inErrDelta = (healthA?.inErrorsDelta ?? 0) + (healthB?.inErrorsDelta ?? 0);
+      final outDiscDelta = (healthA?.outDiscardsDelta ?? 0) + (healthB?.outDiscardsDelta ?? 0);
+
+      _edges[edgeKey] = edge.copyWith(
+        sourcePortName: srcPortName ?? edge.sourcePortName,
+        targetPortName: dstPortName ?? edge.targetPortName,
+        vlanMismatch: report,
+        linkSpeedMbps: effectiveSpeed,
+        linkDuplex: duplex,
+        inErrorsDelta: inErrDelta > 0 ? inErrDelta : edge.inErrorsDelta,
+        outDiscardsDelta: outDiscDelta > 0 ? outDiscDelta : edge.outDiscardsDelta,
+      );
     }
   }
 }

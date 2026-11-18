@@ -1,5 +1,8 @@
 import 'igmp_vlan_status.dart';
+import 'interface_health_stats.dart';
+import 'port_vlan_config.dart';
 import 'stp_port_info.dart';
+import 'switch_poe_status.dart';
 
 class SwitchPortEntry {
   final int portNumber;
@@ -99,6 +102,12 @@ class SwitchDiscoveryResult {
   final bool igmpSnoopingEnabled;
   final List<IgmpVlanStatus> igmpVlans;
 
+  // Q-BRIDGE-MIB VLAN, IF-MIB Health & POWER-ETHERNET-MIB PoE telemetry
+  final Map<int, String> vlanNames;
+  final List<PortVlanConfig> portVlans;
+  final List<InterfaceHealthStats> interfaceHealth;
+  final SwitchPoeStatus? poeStatus;
+
   SwitchDiscoveryResult({
     required this.switchIp,
     required this.sysName,
@@ -114,6 +123,10 @@ class SwitchDiscoveryResult {
     this.stpPorts = const [],
     this.igmpSnoopingEnabled = false,
     this.igmpVlans = const [],
+    this.vlanNames = const {},
+    this.portVlans = const [],
+    this.interfaceHealth = const [],
+    this.poeStatus,
   });
 
   bool get isStpRootBridge {
@@ -139,6 +152,10 @@ class SwitchDiscoveryResult {
     'stp_ports': stpPorts.map((p) => p.toJson()).toList(),
     'igmp_snooping_enabled': igmpSnoopingEnabled,
     'igmp_vlans': igmpVlans.map((v) => v.toJson()).toList(),
+    'vlan_names': vlanNames.map((k, v) => MapEntry(k.toString(), v)),
+    'port_vlans': portVlans.map((p) => p.toJson()).toList(),
+    'interface_health': interfaceHealth.map((h) => h.toJson()).toList(),
+    'poe_status': poeStatus?.toJson(),
   };
 }
 

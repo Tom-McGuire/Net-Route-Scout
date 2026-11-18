@@ -401,6 +401,10 @@ class _TopControlBarState extends State<TopControlBar> {
                         ),
                         const SizedBox(width: 8),
 
+                        // ==================== BASELINE SNAPSHOT & DIFF (Issue #6) ====================
+                        _buildBaselineControls(context, vm),
+                        const SizedBox(width: 8),
+
                         // ==================== ZONE 5: CLEAR & EXPORT ====================
                         OutlinedButton.icon(
                           onPressed: (isScanning || vm.nodes.length <= 1) ? null : vm.clearGraph,
@@ -596,6 +600,138 @@ class _TopControlBarState extends State<TopControlBar> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildBaselineControls(BuildContext context, TopologyViewModel vm) {
+    final baseline = vm.activeBaseline;
+    final diffResult = vm.activeDiffResult;
+    final hasBaseline = baseline != null;
+    final isComparing = vm.compareToBaseline;
+
+    Color accentColor = Colors.white70;
+    String statusText = 'Baseline';
+    if (isComparing && diffResult != null) {
+      if (diffResult.hasDrift) {
+        accentColor = const Color(0xFFEF4444);
+        statusText = '${diffResult.items.length} Drift';
+      } else {
+        accentColor = const Color(0xFF10B981);
+        statusText = 'Match';
+      }
+    } else if (hasBaseline) {
+      accentColor = const Color(0xFF38BDF8);
+      statusText = 'Compare';
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        OutlinedButton.icon(
+          onPressed: vm.nodes.isEmpty
+              ? null
+              : () async {
+                  final snap = await vm.saveCurrentAsBaseline();
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Saved baseline snapshot "${snap.name}"')),
+                    );
+                  }
+                },
+          icon: const Icon(Icons.photo_camera_outlined, size: 15),
+          label: const Text('Save Baseline', style: TextStyle(fontSize: 11)),
+          style: OutlinedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+          ),
+        ),
+        if (hasBaseline) ...[
+          const SizedBox(width: 6),
+          InkWell(
+            onTap: () => vm.toggleCompareToBaseline(),
+            borderRadius: BorderRadius.circular(6),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+              decoration: BoxDecoration(
+                color: accentColor.withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: accentColor.withValues(alpha: 0.6)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    isComparing
+                        ? (diffResult?.hasDrift == true ? Icons.warning_amber_rounded : Icons.check_circle)
+                        : Icons.compare_arrows,
+                    size: 14,
+                    color: accentColor,
+                  ),
+                  const SizedBox(width: 5),
+                  Text(
+                    statusText,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: accentColor,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+        const SizedBox(width: 4),
+        PopupMenuButton<String>(
+          tooltip: 'Baseline Options',
+          onSelected: (val) async {
+            if (val == 'import') {
+              final ok = await vm.importBaselineJson();
+              if (ok && context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Imported baseline snapshot & enabled Compare Mode')),
+                );
+              }
+            } else if (val == 'export') {
+              final path = await vm.exportBaselineJson();
+              if (path != null && context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Baseline exported to $path')),
+                );
+              }
+            } else if (val == 'drawer') {
+              vm.toggleDiffDrawer();
+            } else if (val == 'clear') {
+              await vm.clearBaseline();
+            }
+          },
+          itemBuilder: (ctx) => [
+            const PopupMenuItem(
+              value: 'import',
+              child: Text('Import Baseline JSON...', style: TextStyle(fontSize: 12)),
+            ),
+            if (hasBaseline) ...[
+              const PopupMenuItem(
+                value: 'export',
+                child: Text('Export Baseline JSON...', style: TextStyle(fontSize: 12)),
+              ),
+              if (isComparing)
+                const PopupMenuItem(
+                  value: 'drawer',
+                  child: Text('Toggle Diff Drawer', style: TextStyle(fontSize: 12)),
+                ),
+              const PopupMenuItem(
+                value: 'clear',
+                child: Text('Clear Saved Baseline', style: TextStyle(fontSize: 12, color: Colors.redAccent)),
+              ),
+            ],
+          ],
+          child: const Padding(
+            padding: EdgeInsets.all(4),
+            child: Icon(Icons.more_vert, size: 16, color: Colors.white54),
+          ),
+        ),
+      ],
     );
   }
 

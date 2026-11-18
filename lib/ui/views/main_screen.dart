@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../view_models/topology_view_model.dart';
 import 'widgets/alert_banner.dart';
 import 'widgets/detail_inspector_panel.dart';
+import 'widgets/diff_summary_drawer.dart';
 import 'widgets/filter_toolbar.dart';
 import 'widgets/l2_capture_permission_dialog.dart';
 import 'widgets/route_table_view.dart';
@@ -70,9 +71,40 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           // 3. Filter & Target Input Toolbar
           const FilterToolbar(),
 
-          // 4. Primary Data Workspace (Expanded)
+          // 4. Primary Data Workspace (Expanded) + Optional Baseline Diff Drawer
           Expanded(
-            child: _buildWorkspace(vm.viewMode),
+            child: Row(
+              children: [
+                Expanded(child: _buildWorkspace(vm.viewMode)),
+                if (vm.compareToBaseline &&
+                    vm.showDiffDrawer &&
+                    vm.activeBaseline != null &&
+                    vm.activeDiffResult != null)
+                  DiffSummaryDrawer(
+                    baseline: vm.activeBaseline!,
+                    diffResult: vm.activeDiffResult!,
+                    onFocusTarget: (targetId) {
+                      if (vm.nodes.containsKey(targetId)) {
+                        vm.selectNode(targetId);
+                      } else if (targetId.contains('->')) {
+                        final src = targetId.split('->').first;
+                        if (vm.nodes.containsKey(src)) {
+                          vm.selectNode(src);
+                        }
+                      }
+                    },
+                    onClose: () => vm.toggleDiffDrawer(false),
+                    onExportBaseline: () async {
+                      final path = await vm.exportBaselineJson();
+                      if (path != null && context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Baseline exported to $path')),
+                        );
+                      }
+                    },
+                  ),
+              ],
+            ),
           ),
 
           // 5. Collapsible Detail Inspector & Status Bar

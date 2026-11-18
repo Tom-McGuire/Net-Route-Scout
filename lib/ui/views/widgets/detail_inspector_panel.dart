@@ -2,8 +2,11 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:net_route_scout/core/app_theme.dart';
+import 'package:net_route_scout/domain/models/interface_health_stats.dart';
+import 'package:net_route_scout/domain/models/network_edge.dart';
 import 'package:net_route_scout/domain/models/network_node.dart';
 import 'package:net_route_scout/domain/models/stp_port_info.dart';
+import 'package:net_route_scout/domain/models/switch_poe_status.dart';
 import 'package:net_route_scout/ui/view_models/topology_view_model.dart';
 import 'edit_device_dialog.dart';
 
@@ -219,6 +222,9 @@ class DetailInspectorPanel extends StatelessWidget {
                     }).toList(),
                   ),
                 ],
+                ..._buildPoeSection(vm, node),
+                ..._buildInterfaceHealthSection(node),
+                ..._buildVlanSection(vm, node),
 
                 // Scan Subnet in ARP Scout Action Button
                 Builder(
@@ -370,6 +376,169 @@ class DetailInspectorPanel extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  List<Widget> _buildPoeSection(TopologyViewModel vm, NetworkNode node) {
+    final poe = node.poeStatus;
+    if (poe == null) return const [];
+
+    final connectedChildren = vm.nodes.values
+        .where((c) => c.connectedSwitchId == node.id && c.switchPort != null)
+        .toList();
+
+    return [
+      const SizedBox(height: 8),
+      const Text(
+        'POE BUDGET & PORT DRAW',
+        style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: Colors.white54, letterSpacing: 0.6),
+      ),
+      const SizedBox(height: 4),
+      _buildMetaRow(
+        'Total Budget',
+        '${poe.consumedWatts}W / ${poe.totalBudgetWatts}W (${poe.utilizationPercent.toStringAsFixed(0)}%)',
+      ),
+      _buildMetaRow('Headroom', '${poe.remainingWatts}W remaining'),
+      if (poe.ports.isNotEmpty) ...[
+        const SizedBox(height: 4),
+        Wrap(
+          spacing: 4,
+          runSpacing: 4,
+          children: poe.ports.map((p) {
+            final color = p.isFault
+                ? const Color(0xFFEF4444)
+                : (p.state == PoePortState.deliveringPower
+                    ? const Color(0xFF06B6D4)
+                    : Colors.white54);
+            final child = connectedChildren.where((c) =>
+                c.switchPort!.toLowerCase().contains(p.interfaceName.toLowerCase()) ||
+                c.switchPort!.contains('Port ${p.portIndex}')).firstOrNull;
+            final wattsStr = p.drawWatts != null ? ' ${p.drawWatts!.toStringAsFixed(1)}W' : '';
+            final classStr = p.powerClass != null ? ' (${p.powerClass})' : '';
+            final peerStr = child != null ? ' → ${child.displayName}' : '';
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(color: color.withValues(alpha: 0.45)),
+              ),
+              child: Text(
+                '${p.interfaceName}: ${p.state.label}$wattsStr$classStr$peerStr',
+                style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w600, color: color),
+              ),
+            );
+          }).toList(),
+        ),
+      ],
+    ];
+  }
+
+  List<Widget> _buildInterfaceHealthSection(NetworkNode node) {
+    if (node.interfaceHealth.isEmpty) return const [];
+    return [
+      const SizedBox(height: 8),
+      const Text(
+        'INTERFACE SPEED & ERROR COUNTERS',
+        style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: Colors.white54, letterSpacing: 0.6),
+      ),
+      const SizedBox(height: 4),
+      Wrap(
+        spacing: 4,
+        runSpacing: 4,
+        children: node.interfaceHealth.map((h) {
+          final isWarn = h.isDegradedSpeed || h.isHalfDuplex || h.hasActiveErrors;
+          final color = isWarn ? const Color(0xFFF59E0B) : const Color(0xFF10B981);
+          final duplexShort = h.duplex == DuplexMode.halfDuplex
+              ? ' HDX'
+              : (h.duplex == DuplexMode.fullDuplex ? ' FDX' : '');
+          final errStr = (h.inErrors > 0 || h.inErrorsDelta > 0)
+              ? ' | CRC ${h.inErrors}${h.inErrorsDelta > 0 ? ' (+${h.inErrorsDelta}Δ)' : ''}'
+              : '';
+          final discStr = (h.outDiscards > 0 || h.outDiscardsDelta > 0)
+              ? ' | Drop ${h.outDiscards}${h.outDiscardsDelta > 0 ? ' (+${h.outDiscardsDelta}Δ)' : ''}'
+              : '';
+          return Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(4),
+              border: Border.all(color: color.withValues(alpha: 0.45)),
+            ),
+            child: Text(
+              '${h.interfaceName}: ${h.formattedSpeed}$duplexShort$errStr$discStr',
+              style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w600, color: color),
+            ),
+          );
+        }).toList(),
+      ),
+    ];
+  }
+
+  List<Widget> _buildVlanSection(TopologyViewModel vm, NetworkNode node) {
+    final relatedMismatches = vm.edges.values
+        .where((e) => (e.sourceIp == node.id || e.targetIp == node.id) && e.hasVlanMismatch)
+        .toList();
+    if (node.portVlans.isEmpty && relatedMismatches.isEmpty) return const [];
+
+    return [
+      const SizedBox(height: 8),
+      const Text(
+        'VLAN TRUNK & PVID STATUS',
+        style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: Colors.white54, letterSpacing: 0.6),
+      ),
+      const SizedBox(height: 4),
+      if (node.portVlans.isNotEmpty)
+        Wrap(
+          spacing: 4,
+          runSpacing: 4,
+          children: node.portVlans.map((p) {
+            final vlans = p.allowedVlans.toList()..sort();
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: const Color(0xFF38BDF8).withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(color: const Color(0xFF38BDF8).withValues(alpha: 0.35)),
+              ),
+              child: Text(
+                '${p.interfaceName}: PVID ${p.nativePvid} | [${vlans.join(',')}]',
+                style: const TextStyle(fontSize: 9.5, color: Color(0xFF7DD3FC), fontFamily: 'monospace'),
+              ),
+            );
+          }).toList(),
+        ),
+      for (final edge in relatedMismatches) ...[
+        const SizedBox(height: 4),
+        _buildVlanDiffCard(vm, edge),
+      ],
+    ];
+  }
+
+  Widget _buildVlanDiffCard(TopologyViewModel vm, NetworkEdge edge) {
+    final rep = edge.vlanMismatch!;
+    final srcName = vm.nodes[edge.sourceIp]?.displayName ?? edge.sourceIp;
+    final dstName = vm.nodes[edge.targetIp]?.displayName ?? edge.targetIp;
+    final issues = <String>[
+      if (rep.hasNativeVlanMismatch)
+        'Native PVID mismatch (${rep.sideANativeVlan} ≠ ${rep.sideBNativeVlan})',
+      if (rep.missingOnSideA.isNotEmpty)
+        'Pruned on $srcName: VLAN ${rep.missingOnSideA.join(', ')} ✗',
+      if (rep.missingOnSideB.isNotEmpty)
+        'Pruned on $dstName: VLAN ${rep.missingOnSideB.join(', ')} ✗',
+    ];
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF59E0B).withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(5),
+        border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.55)),
+      ),
+      child: Text(
+        '⚠ $srcName ↔ $dstName: ${issues.join(' | ')}',
+        style: const TextStyle(fontSize: 10, color: Color(0xFFFBBF24)),
       ),
     );
   }

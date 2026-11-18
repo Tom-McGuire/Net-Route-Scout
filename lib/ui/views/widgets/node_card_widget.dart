@@ -1,13 +1,17 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:net_route_scout/core/app_theme.dart';
 import 'package:net_route_scout/domain/models/network_node.dart';
+import 'package:net_route_scout/domain/models/switch_poe_status.dart';
+import 'package:net_route_scout/domain/models/topology_diff_result.dart';
 
 class NodeCardWidget extends StatelessWidget {
   final NetworkNode node;
   final bool isSelected;
   final bool isOnActivePath;
   final bool isDimmed;
+  final bool isBaselineDimmed;
   final bool isSearchMatch;
+  final DiffChangeType? diffStatus;
   final VoidCallback onTap;
   final void Function(TapUpDetails details)? onSecondaryTapUp;
 
@@ -17,7 +21,9 @@ class NodeCardWidget extends StatelessWidget {
     required this.isSelected,
     required this.isOnActivePath,
     required this.isDimmed,
+    this.isBaselineDimmed = false,
     this.isSearchMatch = false,
+    this.diffStatus,
     required this.onTap,
     this.onSecondaryTapUp,
   });
@@ -29,17 +35,28 @@ class NodeCardWidget extends StatelessWidget {
     final iconData = _getNodeIcon(node);
     final displayIp = node.ip.startsWith('anon:') ? 'Anon-Hop-${node.hopDepth}' : node.ip;
 
-    final borderColor = isSelected || isOnActivePath
-        ? AppTheme.activeHighlight
-        : isSearchMatch
-            ? const Color(0xFFF59E0B)
-            : themeColor.withValues(alpha: node.isUnresponsive ? 0.3 : 0.6);
+    final isGhostMissing = diffStatus == DiffChangeType.missing;
+    final borderColor = isGhostMissing
+        ? const Color(0xFFEF4444)
+        : diffStatus == DiffChangeType.added
+            ? const Color(0xFF10B981)
+            : (diffStatus == DiffChangeType.roleChanged ||
+                    diffStatus == DiffChangeType.stpStateChanged ||
+                    diffStatus == DiffChangeType.linkDegraded)
+                ? const Color(0xFFF59E0B)
+                : isSelected || isOnActivePath
+                    ? AppTheme.activeHighlight
+                    : isSearchMatch
+                        ? const Color(0xFFF59E0B)
+                        : themeColor.withValues(alpha: node.isUnresponsive ? 0.3 : 0.6);
 
-    final borderWidth = isSelected ? 2.5 : ((isOnActivePath || isSearchMatch) ? 2.0 : 1.2);
+    final borderWidth = isSelected ? 2.5 : ((isOnActivePath || isSearchMatch || isGhostMissing) ? 2.0 : 1.2);
 
     return AnimatedOpacity(
       duration: const Duration(milliseconds: 200),
-      opacity: isDimmed ? 0.15 : 1.0,
+      opacity: isGhostMissing
+          ? 0.55
+          : (isDimmed ? 0.15 : (isBaselineDimmed ? 0.75 : 1.0)),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
@@ -160,6 +177,10 @@ class NodeCardWidget extends StatelessWidget {
                                   ),
                                 ),
                               ),
+                            ],
+                            if (diffStatus != null && diffStatus != DiffChangeType.unchanged) ...[
+                              const SizedBox(width: 4),
+                              _buildDiffBadge(diffStatus!),
                             ],
                           ],
                         ),
@@ -285,8 +306,10 @@ class NodeCardWidget extends StatelessWidget {
                   ],
                 ),
 
-                // 3. Bottom Row: MAC & Vendor / Subtitle Details
-                if (node.macAddress != null) ...[
+                // 3. Bottom Row: PoE Gauge (for PoE Switches) / MAC & Vendor / Subtitle Details
+                if (node.isSwitch && node.poeStatus != null && node.poeStatus!.totalBudgetWatts > 0) ...[
+                  _buildPoeGauge(node.poeStatus!),
+                ] else if (node.macAddress != null) ...[
                   Row(
                     children: [
                       const Icon(Icons.fingerprint, size: 10, color: Colors.white38),
@@ -398,6 +421,79 @@ class NodeCardWidget extends StatelessWidget {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPoeGauge(SwitchPoeStatus poe) {
+    final pct = poe.utilizationPercent;
+    final Color barColor;
+    if (poe.isCriticalCapacity || poe.hasPortFaults) {
+      barColor = const Color(0xFFEF4444);
+    } else if (pct >= 75.0) {
+      barColor = const Color(0xFFF59E0B);
+    } else {
+      barColor = const Color(0xFF06B6D4);
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.bolt, size: 10, color: barColor),
+            const SizedBox(width: 2),
+            Expanded(
+              child: Text(
+                'PoE: ${poe.consumedWatts}W/${poe.totalBudgetWatts}W (${pct.round()}%)',
+                style: TextStyle(
+                  fontSize: 8.5,
+                  fontWeight: FontWeight.w600,
+                  fontFamily: 'monospace',
+                  color: barColor,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 2),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(2),
+          child: LinearProgressIndicator(
+            value: (pct / 100.0).clamp(0.0, 1.0),
+            minHeight: 3,
+            backgroundColor: Colors.white12,
+            valueColor: AlwaysStoppedAnimation<Color>(barColor),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDiffBadge(DiffChangeType status) {
+    final (String label, Color color) = switch (status) {
+      DiffChangeType.missing => ('MISSING', const Color(0xFFEF4444)),
+      DiffChangeType.added => ('+ NEW', const Color(0xFF10B981)),
+      _ => ('DRIFT', const Color(0xFFF59E0B)),
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1.5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.2),
+        borderRadius: BorderRadius.circular(3),
+        border: Border.all(color: color.withValues(alpha: 0.65), width: 0.8),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 7.5,
+          fontWeight: FontWeight.bold,
+          color: color,
+          letterSpacing: 0.3,
         ),
       ),
     );
