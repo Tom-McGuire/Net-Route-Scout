@@ -807,9 +807,94 @@ class TopologyRepository {
     return matched;
   }
 
+  StpPortInfo? _findStpPort(NetworkNode node, String? portName) {
+    if (node.stpPorts.isEmpty || portName == null || portName.isEmpty) return null;
+    final norm = portName.toLowerCase();
+    for (final p in node.stpPorts) {
+      if (p.interfaceName.toLowerCase() == norm) {
+        return p;
+      }
+    }
+    for (final p in node.stpPorts) {
+      final pNorm = p.interfaceName.toLowerCase();
+      if (pNorm.isNotEmpty && (norm.contains(pNorm) || pNorm.contains(norm))) {
+        return p;
+      }
+    }
+    return null;
+  }
+
+  /// Links two switches discovered via LLDP/CDP without inverting existing
+  /// upstream hierarchy or deleting peer ring edges.
+  void linkSwitchNeighbor({
+    required String switchId,
+    required String neighborId,
+    required String localPort,
+    required String remotePort,
+  }) {
+    if (!_nodes.containsKey(switchId) || !_nodes.containsKey(neighborId)) return;
+    if (switchId == neighborId) return;
+
+    final isAncestorOrShallower =
+        getUpstreamNodeIds(switchId).contains(neighborId) ||
+        getEffectiveDepth(neighborId) < getEffectiveDepth(switchId);
+
+    if (isAncestorOrShallower) {
+      final existingKey = '$neighborId->$switchId';
+      final existing = _edges[existingKey];
+      _edges[existingKey] = existing != null
+          ? existing.copyWith(sourcePortName: remotePort, targetPortName: localPort)
+          : NetworkEdge(
+              sourceIp: neighborId,
+              targetIp: switchId,
+              sourcePortName: remotePort,
+              targetPortName: localPort,
+            );
+    } else if (_edges.containsKey('$switchId->$neighborId')) {
+      final edgeKey = '$switchId->$neighborId';
+      _edges[edgeKey] = _edges[edgeKey]!.copyWith(
+        sourcePortName: localPort,
+        targetPortName: remotePort,
+      );
+    } else if (_edges.values.any((e) =>
+        e.targetIp == neighborId &&
+        e.sourceIp != _localHostIp &&
+        e.sourceIp != _gatewayIp)) {
+      final edgeKey = '$switchId->$neighborId';
+      _edges[edgeKey] = NetworkEdge(
+        sourceIp: switchId,
+        targetIp: neighborId,
+        sourcePortName: localPort,
+        targetPortName: remotePort,
+      );
+    } else {
+      connectNodeToSwitch(neighborId, switchId, portLabel: localPort);
+      final edgeKey = '$switchId->$neighborId';
+      final edge = _edges[edgeKey];
+      if (edge != null) {
+        _edges[edgeKey] = edge.copyWith(
+          sourcePortName: localPort,
+          targetPortName: remotePort,
+        );
+      }
+    }
+
+    correlateStpEdges();
+  }
+
   /// Evaluates switch-to-switch edges against STP port states to mark
   /// blocking ring splits and forwarding traffic directions.
   void correlateStpEdges() {
+    final switchEdgeCounts = <String, int>{};
+    for (final edge in _edges.values) {
+      final srcNode = _nodes[edge.sourceIp];
+      final dstNode = _nodes[edge.targetIp];
+      if (srcNode == null || dstNode == null) continue;
+      if (!srcNode.isSwitch || !dstNode.isSwitch) continue;
+      switchEdgeCounts[srcNode.id] = (switchEdgeCounts[srcNode.id] ?? 0) + 1;
+      switchEdgeCounts[dstNode.id] = (switchEdgeCounts[dstNode.id] ?? 0) + 1;
+    }
+
     for (final edgeKey in _edges.keys.toList()) {
       final edge = _edges[edgeKey]!;
       final srcNode = _nodes[edge.sourceIp];
@@ -817,22 +902,43 @@ class TopologyRepository {
       if (srcNode == null || dstNode == null) continue;
       if (!srcNode.isSwitch || !dstNode.isSwitch) continue;
 
+      final srcPortHint = edge.sourcePortName ??
+          (dstNode.connectedSwitchId == srcNode.id ? dstNode.switchPort : null);
+      final dstPortHint = edge.targetPortName ??
+          edge.blockingPortName ??
+          (dstNode.connectedSwitchId == srcNode.id ? dstNode.switchPort : null);
+
+      final dstStp = _findStpPort(dstNode, dstPortHint);
+      final srcStp = _findStpPort(srcNode, srcPortHint);
+
       StpPortInfo? blockingPort;
       String? blockingSwitchId;
 
-      for (final p in dstNode.stpPorts) {
-        if (p.state == StpPortState.blocking) {
-          blockingPort = p;
-          blockingSwitchId = dstNode.id;
-          break;
+      if (dstStp != null && dstStp.isBlocking) {
+        blockingPort = dstStp;
+        blockingSwitchId = dstNode.id;
+      } else if (srcStp != null && srcStp.isBlocking) {
+        blockingPort = srcStp;
+        blockingSwitchId = srcNode.id;
+      } else if (edge.sourcePortName == null &&
+          edge.targetPortName == null &&
+          edge.blockingPortName == null) {
+        if ((switchEdgeCounts[dstNode.id] ?? 0) <= 1) {
+          for (final p in dstNode.stpPorts) {
+            if (p.isBlocking) {
+              blockingPort = p;
+              blockingSwitchId = dstNode.id;
+              break;
+            }
+          }
         }
-      }
-      if (blockingPort == null) {
-        for (final p in srcNode.stpPorts) {
-          if (p.state == StpPortState.blocking) {
-            blockingPort = p;
-            blockingSwitchId = srcNode.id;
-            break;
+        if (blockingPort == null && (switchEdgeCounts[srcNode.id] ?? 0) <= 1) {
+          for (final p in srcNode.stpPorts) {
+            if (p.isBlocking) {
+              blockingPort = p;
+              blockingSwitchId = srcNode.id;
+              break;
+            }
           }
         }
       }
@@ -843,7 +949,10 @@ class TopologyRepository {
           blockingSwitchId: blockingSwitchId,
           blockingPortName: blockingPort.interfaceName,
         );
-      } else if (srcNode.stpPorts.isNotEmpty || dstNode.stpPorts.isNotEmpty) {
+      } else if ((dstStp?.isForwarding ?? false) ||
+          (srcStp?.isForwarding ?? false) ||
+          ((dstStp == null && srcStp == null) &&
+              (dstNode.stpPorts.isNotEmpty || srcNode.stpPorts.isNotEmpty))) {
         final srcCost = srcNode.stpRootCost ?? 0;
         final dstCost = dstNode.stpRootCost ?? 1;
         _edges[edgeKey] = edge.copyWith(

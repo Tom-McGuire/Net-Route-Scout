@@ -537,8 +537,8 @@ class _FilterToolbarState extends State<FilterToolbar> {
               String? vendor,
               String? notes,
             }) {
-              vm.updateDeviceMetadata(
-                macAddress: rawMac,
+              vm.updateDeviceDetails(
+                rawMac: rawMac,
                 name: name,
                 category: category,
                 vendor: vendor,
@@ -654,8 +654,8 @@ class _FilterToolbarState extends State<FilterToolbar> {
               String? vendor,
               String? notes,
             }) {
-              vm.updateDeviceMetadata(
-                macAddress: rawMac,
+              vm.updateDeviceDetails(
+                rawMac: rawMac,
                 name: name,
                 category: category,
                 vendor: vendor,

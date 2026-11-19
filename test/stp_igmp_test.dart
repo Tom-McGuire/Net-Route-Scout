@@ -155,5 +155,84 @@ void main() {
       );
       expect(issue.detectedToolsLabel, 'tcpdump & tshark');
     });
+
+    test('P1: Multi-trunk correlateStpEdges marks only blocking ring port, keeping uplink forwarding', () {
+      final repo = TopologyRepository();
+      repo.setLocalHost('10.0.2.100', gatewayIp: '10.0.2.1');
+      final core = repo.addStandaloneSwitch(name: 'Core', ip: '10.0.2.1', upstreamNodeId: '10.0.2.100');
+      final access = repo.addStandaloneSwitch(name: 'Access', ip: '10.0.2.2', upstreamNodeId: core.id);
+      final ring = repo.addStandaloneSwitch(name: 'Ring', ip: '10.0.2.3', upstreamNodeId: core.id);
+
+      repo.connectNodeToSwitch(access.id, core.id, portLabel: 'Uplink 1/24');
+      repo.connectNodeToSwitch(ring.id, core.id, portLabel: 'Fiber 1/26');
+
+      // Tag explicit port names on both inter-switch links touching Access
+      final uplink = repo.edges['${core.id}->${access.id}']!;
+      repo.updateEdgeDirect(uplink.copyWith(sourcePortName: 'Gi1/0/24', targetPortName: 'Uplink 1/24'));
+      repo.updateEdgeDirect(NetworkEdge(
+        sourceIp: ring.id,
+        targetIp: access.id,
+        sourcePortName: 'Fiber 1/26',
+        targetPortName: 'Ring 1/25',
+      ));
+
+      repo.applyStpAndIgmpFromSnmp(
+        core.id,
+        SwitchDiscoveryResult(
+          switchIp: core.ip,
+          sysName: 'Core',
+          stpBridgeMac: '00:11:22:33:44:01',
+          stpPriority: 4096,
+          stpRootCost: 0,
+          stpRootPort: 0,
+          stpPorts: const [
+            StpPortInfo(bridgePort: 24, ifIndex: 24, interfaceName: 'Gi1/0/24', state: StpPortState.forwarding),
+          ],
+        ),
+      );
+
+      repo.applyStpAndIgmpFromSnmp(
+        access.id,
+        SwitchDiscoveryResult(
+          switchIp: access.ip,
+          sysName: 'Access',
+          stpBridgeMac: '00:11:22:33:44:02',
+          stpPriority: 32768,
+          stpRootCost: 4,
+          stpRootPort: 24,
+          stpPorts: const [
+            StpPortInfo(bridgePort: 24, ifIndex: 24, interfaceName: 'Uplink 1/24', state: StpPortState.forwarding),
+            StpPortInfo(bridgePort: 25, ifIndex: 25, interfaceName: 'Ring 1/25', state: StpPortState.blocking),
+          ],
+        ),
+      );
+
+      expect(repo.edges['${core.id}->${access.id}']!.stpState, LinkStpState.forwarding);
+      expect(repo.edges['${ring.id}->${access.id}']!.stpState, LinkStpState.blocking);
+      expect(repo.edges['${ring.id}->${access.id}']!.blockingPortName, 'Ring 1/25');
+    });
+
+    test('P3: linkSwitchNeighbor does not invert upstream core hierarchy', () {
+      final repo = TopologyRepository();
+      repo.setLocalHost('10.0.2.100', gatewayIp: '10.0.2.1');
+      final core = repo.addStandaloneSwitch(name: 'CoreSwitch', ip: '10.0.2.1', upstreamNodeId: '10.0.2.100');
+      final access = repo.addStandaloneSwitch(name: 'AccessSwitch', ip: '10.0.2.2', upstreamNodeId: core.id);
+      repo.connectNodeToSwitch(access.id, core.id, portLabel: 'Gi1/0/24');
+
+      // Access reports LLDP neighbor pointing back upstream to Core
+      repo.linkSwitchNeighbor(
+        switchId: access.id,
+        neighborId: core.id,
+        localPort: 'Te1/0/1',
+        remotePort: 'Gi1/0/24',
+      );
+
+      // Core remains upstream parent of Access; reverse edge must not overwrite hierarchy
+      final edge = repo.edges['${core.id}->${access.id}'];
+      expect(edge, isNotNull);
+      expect(edge!.sourcePortName, 'Gi1/0/24');
+      expect(edge.targetPortName, 'Te1/0/1');
+      expect(repo.edges['${access.id}->${core.id}'], isNull);
+    });
   });
 }

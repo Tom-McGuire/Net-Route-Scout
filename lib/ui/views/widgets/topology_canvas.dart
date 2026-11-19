@@ -1,16 +1,14 @@
 import 'dart:math' as math;
 import 'package:material_ui/material_ui.dart';
-import 'package:flutter/services.dart';
 import 'package:net_route_scout/core/app_theme.dart';
+import 'package:net_route_scout/data/services/icmp_service.dart';
 import 'package:net_route_scout/domain/models/network_edge.dart';
 import 'package:net_route_scout/domain/models/network_node.dart';
 import 'package:net_route_scout/domain/models/topology_diff_result.dart';
 import 'package:net_route_scout/ui/view_models/topology_view_model.dart';
 import 'package:provider/provider.dart';
-import 'connect_switch_dialog.dart';
-import 'edit_device_dialog.dart';
 import 'node_card_widget.dart';
-import 'snmp_discovery_dialog.dart';
+import 'node_context_menu.dart';
 
 class TopologyCanvas extends StatefulWidget {
   const TopologyCanvas({super.key});
@@ -45,209 +43,6 @@ class _TopologyCanvasState extends State<TopologyCanvas> {
     _transformController.value = Matrix4.identity();
   }
 
-  void _showNodeContextMenu(
-    BuildContext context,
-    TopologyViewModel vm,
-    NetworkNode node,
-    Offset globalPosition,
-  ) {
-    final subnet = vm.deriveSubnetForNode(node);
-    final hasValidSubnet = subnet.isNotEmpty;
-
-    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox?;
-    final position = RelativeRect.fromRect(
-      Rect.fromLTWH(globalPosition.dx, globalPosition.dy, 1, 1),
-      Offset.zero & (overlay?.size ?? const Size(1920, 1080)),
-    );
-
-    showMenu<String>(
-      context: context,
-      position: position,
-      color: AppTheme.surfaceContainerHigh,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(8),
-        side: const BorderSide(color: AppTheme.border),
-      ),
-      items: [
-        if (hasValidSubnet)
-          PopupMenuItem<String>(
-            value: 'scan_arp',
-            child: Row(
-              children: [
-                const Icon(Icons.radar, size: 16, color: AppTheme.primaryAccent),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    'Scan Subnet with ARP Scout ($subnet)',
-                    style: const TextStyle(fontSize: 12.5, color: Colors.white),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        PopupMenuItem<String>(
-          value: 'select_path',
-          child: Row(
-            children: [
-              const Icon(Icons.alt_route, size: 16, color: AppTheme.activeHighlight),
-              const SizedBox(width: 10),
-              Text(
-                vm.selectedNodeId == node.id ? 'Deselect Node' : 'Focus / Select Node Path',
-                style: const TextStyle(fontSize: 12.5, color: Colors.white),
-              ),
-            ],
-          ),
-        ),
-        if (!node.isLocalHost) ...[
-          if (!node.isSwitch)
-            const PopupMenuItem<String>(
-              value: 'define_switch',
-              child: Row(
-                children: [
-                  Icon(Icons.hub, size: 16, color: Color(0xFF06B6D4)),
-                  SizedBox(width: 10),
-                  Text(
-                    'Define as Switch Node',
-                    style: TextStyle(fontSize: 12.5, color: Colors.white),
-                  ),
-                ],
-              ),
-            )
-          else ...[
-            const PopupMenuItem<String>(
-              value: 'revert_switch',
-              child: Row(
-                children: [
-                  Icon(Icons.undo, size: 16, color: Colors.white70),
-                  SizedBox(width: 10),
-                  Text(
-                    'Revert to Standard Node',
-                    style: TextStyle(fontSize: 12.5, color: Colors.white),
-                  ),
-                ],
-              ),
-            ),
-            if (!node.isUnresponsive)
-              const PopupMenuItem<String>(
-                value: 'query_snmp',
-                child: Row(
-                  children: [
-                    Icon(Icons.sensors, size: 16, color: Color(0xFF06B6D4)),
-                    SizedBox(width: 10),
-                    Text(
-                      'Query Switch via SNMP...',
-                      style: TextStyle(fontSize: 12.5, color: Colors.white),
-                    ),
-                  ],
-                ),
-              ),
-          ],
-          PopupMenuItem<String>(
-            value: 'connect_switch',
-            child: Row(
-              children: [
-                const Icon(Icons.cable, size: 16, color: Color(0xFF06B6D4)),
-                const SizedBox(width: 10),
-                Text(
-                  node.connectedSwitchId != null ? 'Change Connected Switch...' : 'Connect to Switch...',
-                  style: const TextStyle(fontSize: 12.5, color: Colors.white),
-                ),
-              ],
-            ),
-          ),
-          if (node.connectedSwitchId != null)
-            const PopupMenuItem<String>(
-              value: 'disconnect_switch',
-              child: Row(
-                children: [
-                  Icon(Icons.link_off, size: 16, color: Colors.redAccent),
-                  SizedBox(width: 10),
-                  Text(
-                    'Disconnect from Switch',
-                    style: TextStyle(fontSize: 12.5, color: Colors.redAccent),
-                  ),
-                ],
-              ),
-            ),
-        ],
-        PopupMenuItem<String>(
-          value: 'edit_shared',
-          child: const Row(
-            children: [
-              Icon(Icons.edit, size: 16, color: Colors.white70),
-              SizedBox(width: 10),
-              Text(
-                'Edit Shared Device Identity',
-                style: TextStyle(fontSize: 12.5, color: Colors.white),
-              ),
-            ],
-          ),
-        ),
-        if (!node.isUnresponsive)
-          PopupMenuItem<String>(
-            value: 'copy_ip',
-            child: const Row(
-              children: [
-                Icon(Icons.copy, size: 16, color: Colors.white70),
-                SizedBox(width: 10),
-                Text(
-                  'Copy IP Address',
-                  style: TextStyle(fontSize: 12.5, color: Colors.white),
-                ),
-              ],
-            ),
-          ),
-      ],
-    ).then((choice) {
-      if (!context.mounted || choice == null) return;
-      switch (choice) {
-        case 'scan_arp':
-          vm.launchArpScoutForNode(context, node);
-          break;
-        case 'select_path':
-          if (vm.selectedNodeId == node.id) {
-            vm.clearSelection();
-          } else {
-            vm.selectNode(node.id);
-          }
-          break;
-        case 'define_switch':
-          vm.defineNodeAsSwitch(node.id, isSwitch: true);
-          break;
-        case 'revert_switch':
-          vm.defineNodeAsSwitch(node.id, isSwitch: false);
-          break;
-        case 'connect_switch':
-          ConnectSwitchDialog.show(context, vm, node);
-          break;
-        case 'disconnect_switch':
-          vm.disconnectNodeFromSwitch(node.id);
-          break;
-        case 'query_snmp':
-          SnmpDiscoveryDialog.show(context, vm, node: node);
-          break;
-        case 'edit_shared':
-          showDialog(
-            context: context,
-            builder: (ctx) => EditDeviceDialog(
-              node: node,
-              onSave: vm.updateDeviceDetails,
-            ),
-          );
-          break;
-        case 'copy_ip':
-          Clipboard.setData(ClipboardData(text: node.ip));
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Copied ${node.ip} to clipboard'),
-              duration: const Duration(seconds: 2),
-            ),
-          );
-          break;
-      }
-    });
-  }
-
   @override
   void dispose() {
     _transformController.dispose();
@@ -278,12 +73,18 @@ class _TopologyCanvasState extends State<TopologyCanvas> {
       return _buildEmptyState(context, vm);
     }
 
-    // 1. Group nodes by layer/depth using dynamic topological depth
+    // 1. Group nodes by layer/depth using a single memoized topological depth pass (I2)
+    final effectiveDepths = vm.getEffectiveNodeDepths();
     final layers = <int, List<NetworkNode>>{};
     for (final node in nodes.values) {
       final isGhost = diffResult?.nodeStatuses[node.id] == DiffChangeType.missing;
-      final depth = isGhost ? node.hopDepth : vm.getEffectiveNodeDepth(node.id);
+      final depth = isGhost ? node.hopDepth : (effectiveDepths[node.id] ?? node.hopDepth);
       layers.putIfAbsent(depth, () => []).add(node);
+    }
+
+    final parentsByTarget = <String, Set<String>>{};
+    for (final edge in edges.values) {
+      parentsByTarget.putIfAbsent(edge.targetIp, () => <String>{}).add(edge.sourceIp);
     }
 
     final sortedDepths = layers.keys.toList()..sort();
@@ -291,18 +92,50 @@ class _TopologyCanvasState extends State<TopologyCanvas> {
     final hasSearch = vm.searchQuery.trim().isNotEmpty;
     final matchingNodeIds = hasSearch ? vm.filteredNodes.map((n) => n.id).toSet() : const <String>{};
 
-    // 2. Compute (x, y) coordinates for each node with stable deterministic ordering
+    // 2. Compute (x, y) coordinates using parent-barycenter + numerical IPv4 ordering (I3)
     final nodePositions = <String, Offset>{};
     var maxDepth = 0;
     var maxNodesInLayer = 0;
 
+    double? parentBarycenter(String nodeId) {
+      final parents = parentsByTarget[nodeId];
+      if (parents == null || parents.isEmpty) return null;
+      double sum = 0;
+      int count = 0;
+      for (final pId in parents) {
+        final pos = nodePositions[pId];
+        if (pos != null) {
+          sum += pos.dy;
+          count++;
+        }
+      }
+      return count > 0 ? sum / count : null;
+    }
+
+    int compareIpOrId(NetworkNode a, NetworkNode b) {
+      if (IcmpService.isValidIpv4(a.ip) && IcmpService.isValidIpv4(b.ip)) {
+        final cmp = IcmpService.ipv4ToInt(a.ip).compareTo(IcmpService.ipv4ToInt(b.ip));
+        if (cmp != 0) return cmp;
+      }
+      return a.ip.compareTo(b.ip);
+    }
+
     for (final depth in sortedDepths) {
       final list = layers[depth]!;
-      // Sort deterministically to prevent cards jumping around when HashMap rehashes
       list.sort((a, b) {
         if (a.isLocalHost) return -1;
         if (b.isLocalHost) return 1;
-        return a.ip.compareTo(b.ip);
+        final baryA = parentBarycenter(a.id);
+        final baryB = parentBarycenter(b.id);
+        if (baryA != null && baryB != null) {
+          final diff = baryA.compareTo(baryB);
+          if (diff != 0) return diff;
+        } else if (baryA != null) {
+          return -1;
+        } else if (baryB != null) {
+          return 1;
+        }
+        return compareIpOrId(a, b);
       });
 
       if (depth > maxDepth) maxDepth = depth;
@@ -388,7 +221,7 @@ class _TopologyCanvasState extends State<TopologyCanvas> {
                             }
                           },
                           onSecondaryTapUp: (details) {
-                            _showNodeContextMenu(context, vm, node, details.globalPosition);
+                            showNodeActionsContextMenu(context, vm, node, details.globalPosition);
                           },
                         ),
                       );
@@ -638,6 +471,7 @@ class _TopologyEdgesPainter extends CustomPainter {
         ..strokeCap = StrokeCap.round;
 
       final isMissingDiff = edgeDiffStatuses[edge.edgeId] == DiffChangeType.missing;
+      final reverseFlow = edge.trafficDirectionTargetNodeId == edge.sourceIp;
 
       if (isMissingDiff || edge.stpState == LinkStpState.blocking) {
         // STP Ring Split or Missing Baseline Edge: dashed crimson/amber line with midpoint pill
@@ -664,7 +498,7 @@ class _TopologyEdgesPainter extends CustomPainter {
         }
         canvas.drawPath(path, paint);
         if (!isDimmed) {
-          _drawHorizontalArrowhead(canvas, end, warnColor, 7.5);
+          _drawEdgeFlowDecoration(canvas, start, end, warnColor, 7.5, 2.5, reverse: reverseFlow);
         }
       } else if (isCommon) {
         // Glowing prominent common network path edge (Amber)
@@ -682,12 +516,7 @@ class _TopologyEdgesPainter extends CustomPainter {
         canvas.drawPath(path, glowPaint);
         canvas.drawPath(path, paint);
 
-        final dotPaint = Paint()
-          ..color = amberColor
-          ..style = PaintingStyle.fill;
-        canvas.drawCircle(start, 3.0, dotPaint);
-
-        _drawHorizontalArrowhead(canvas, end, amberColor, 9.0);
+        _drawEdgeFlowDecoration(canvas, start, end, amberColor, 9.0, 3.0, reverse: reverseFlow);
       } else if (isActive) {
         // Glowing active edge
         paint
@@ -703,13 +532,7 @@ class _TopologyEdgesPainter extends CustomPainter {
         canvas.drawPath(path, glowPaint);
         canvas.drawPath(path, paint);
 
-        // Source anchor dot
-        final dotPaint = Paint()
-          ..color = AppTheme.activeHighlight
-          ..style = PaintingStyle.fill;
-        canvas.drawCircle(start, 2.5, dotPaint);
-
-        _drawHorizontalArrowhead(canvas, end, AppTheme.activeHighlight, 8.0);
+        _drawEdgeFlowDecoration(canvas, start, end, AppTheme.activeHighlight, 8.0, 2.5, reverse: reverseFlow);
       } else {
         paint
           ..color = isDimmed
@@ -719,12 +542,15 @@ class _TopologyEdgesPainter extends CustomPainter {
 
         canvas.drawPath(path, paint);
         if (!isDimmed) {
-          final dotPaint = Paint()
-            ..color = const Color(0xFF38BDF8).withValues(alpha: 0.5)
-            ..style = PaintingStyle.fill;
-          canvas.drawCircle(start, 2.0, dotPaint);
-
-          _drawHorizontalArrowhead(canvas, end, const Color(0xFF38BDF8).withValues(alpha: 0.6), 6.5);
+          _drawEdgeFlowDecoration(
+            canvas,
+            start,
+            end,
+            const Color(0xFF38BDF8).withValues(alpha: 0.6),
+            6.5,
+            2.0,
+            reverse: reverseFlow,
+          );
         }
       }
 
@@ -786,16 +612,45 @@ class _TopologyEdgesPainter extends CustomPainter {
     }
   }
 
-  void _drawHorizontalArrowhead(Canvas canvas, Offset tip, Color color, double arrowSize) {
+  void _drawEdgeFlowDecoration(
+    Canvas canvas,
+    Offset start,
+    Offset end,
+    Color color,
+    double arrowSize,
+    double dotRadius, {
+    bool reverse = false,
+  }) {
+    final dotPaint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(reverse ? end : start, dotRadius, dotPaint);
+    _drawHorizontalArrowhead(
+      canvas,
+      reverse ? start : end,
+      color,
+      arrowSize,
+      pointLeft: reverse,
+    );
+  }
+
+  void _drawHorizontalArrowhead(
+    Canvas canvas,
+    Offset tip,
+    Color color,
+    double arrowSize, {
+    bool pointLeft = false,
+  }) {
     final arrowPaint = Paint()
       ..color = color
       ..style = PaintingStyle.fill;
 
+    final dir = pointLeft ? 1.0 : -1.0;
     final path = Path();
     path.moveTo(tip.dx, tip.dy);
-    path.lineTo(tip.dx - arrowSize, tip.dy - (arrowSize * 0.5));
-    path.lineTo(tip.dx - (arrowSize * 0.7), tip.dy);
-    path.lineTo(tip.dx - arrowSize, tip.dy + (arrowSize * 0.5));
+    path.lineTo(tip.dx + dir * arrowSize, tip.dy - (arrowSize * 0.5));
+    path.lineTo(tip.dx + dir * (arrowSize * 0.7), tip.dy);
+    path.lineTo(tip.dx + dir * arrowSize, tip.dy + (arrowSize * 0.5));
     path.close();
 
     canvas.drawPath(path, arrowPaint);

@@ -102,7 +102,7 @@ class _TopControlBarState extends State<TopControlBar> {
                               ),
                             ),
                             const Text(
-                              'Visual Network Topology Mapper',
+                              AppConstants.appSubtitle,
                               style: TextStyle(fontSize: 10, color: Colors.white54),
                             ),
                           ],

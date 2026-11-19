@@ -1,5 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:network_suite_shared/network_suite_shared.dart';
+import 'package:path/path.dart' as p;
 import '../../domain/models/network_adapter_info.dart';
 import 'inter_app_ipc_service.dart';
 
@@ -90,36 +92,43 @@ class InterAppLauncher {
 
   /// Returns the suite configuration file used to store custom user preferences.
   static File _getConfigFile() {
+    final dirPath = SharedDeviceDatabase.getDefaultDirectoryPath();
+    final dir = Directory(dirPath);
+    if (!dir.existsSync()) {
+      try {
+        dir.createSync(recursive: true);
+      } catch (_) {}
+    }
+    return File(p.join(dirPath, 'suite_config.json'));
+  }
+
+  /// Returns the legacy configuration file path (`~/.net_route_scout/suite_config.json`).
+  static File _getLegacyConfigFile() {
     final baseDir = Platform.isWindows
         ? (Platform.environment['LOCALAPPDATA'] ??
             Platform.environment['APPDATA'] ??
             Platform.environment['USERPROFILE'] ??
             '.')
         : (Platform.environment['HOME'] ?? '.');
-    final dir = Directory('$baseDir${Platform.pathSeparator}.net_route_scout');
-    if (!dir.existsSync()) {
-      try {
-        dir.createSync(recursive: true);
-      } catch (_) {}
-    }
-    return File('${dir.path}${Platform.pathSeparator}suite_config.json');
+    return File(p.join(baseDir, '.net_route_scout', 'suite_config.json'));
   }
 
   /// Retrieves previously saved custom path to ARP Scout executable if valid.
   static Future<String?> getCustomArpScoutPath() async {
-    try {
-      final file = _getConfigFile();
-      if (await file.exists()) {
-        final content = await file.readAsString();
-        final decoded = jsonDecode(content);
-        if (decoded is Map && decoded['arpScoutPath'] is String) {
-          final p = decoded['arpScoutPath'] as String;
-          if (await _isPathValid(p)) {
-            return p;
+    for (final file in [_getConfigFile(), _getLegacyConfigFile()]) {
+      try {
+        if (await file.exists()) {
+          final content = await file.readAsString();
+          final decoded = jsonDecode(content);
+          if (decoded is Map && decoded['arpScoutPath'] is String) {
+            final arpPath = decoded['arpScoutPath'] as String;
+            if (await _isPathValid(arpPath)) {
+              return arpPath;
+            }
           }
         }
-      }
-    } catch (_) {}
+      } catch (_) {}
+    }
     return null;
   }
 

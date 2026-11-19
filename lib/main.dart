@@ -22,10 +22,7 @@ void main(List<String> args) async {
   final initialArgs = InterAppArguments.fromArgs(args);
 
   // If another instance of Net Route Scout is already running, attempt warm handoff
-  if (initialArgs.target != null ||
-      initialArgs.adapterIp != null ||
-      initialArgs.adapterName != null ||
-      initialArgs.autoStart) {
+  if (initialArgs.hasCommand) {
     final delivered = await InterAppIpcService.sendCommand(
       port: InterAppIpcService.routeScoutIpcPort,
       payload: initialArgs.toJson(),
@@ -43,7 +40,7 @@ void main(List<String> args) async {
     (payload) {
       final incoming = InterAppArguments.fromJson(payload);
       viewModel.handleIncomingCommand(
-        target: incoming.target,
+        target: incoming.effectiveTarget,
         adapterIp: incoming.adapterIp,
         adapterName: incoming.adapterName,
         autoStart: incoming.autoStart,

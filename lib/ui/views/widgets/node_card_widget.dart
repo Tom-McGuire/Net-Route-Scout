@@ -33,7 +33,7 @@ class NodeCardWidget extends StatelessWidget {
     final themeColor = _getNodeColor(node);
     final badgeLabel = _getNodeBadgeLabel(node);
     final iconData = _getNodeIcon(node);
-    final displayIp = node.ip.startsWith('anon:') ? 'Anon-Hop-${node.hopDepth}' : node.ip;
+    final displayIp = (node.isUnresponsive || node.ip.startsWith('anon:')) ? 'Anon-Hop-${node.hopDepth}' : node.ip;
 
     final isGhostMissing = diffStatus == DiffChangeType.missing;
     final borderColor = isGhostMissing

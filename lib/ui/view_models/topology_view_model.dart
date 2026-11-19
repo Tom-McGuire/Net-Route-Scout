@@ -20,22 +20,18 @@ import '../../data/services/topology_diff_engine.dart';
 import '../../data/services/traceroute_service.dart';
 import '../../data/services/inter_app_launcher.dart';
 import '../../domain/models/cancellation_token.dart';
-import '../../domain/models/igmp_vlan_status.dart';
 import '../../domain/models/inter_app_arguments.dart';
-import '../../domain/models/interface_health_stats.dart';
 import '../../domain/models/network_adapter_info.dart';
 import '../../domain/models/network_edge.dart';
 import '../../domain/models/network_node.dart';
-import '../../domain/models/port_vlan_config.dart';
 import '../../domain/models/scan_progress.dart';
-import '../../domain/models/stp_port_info.dart';
 import '../../domain/models/switch_discovery_info.dart';
-import '../../domain/models/switch_poe_status.dart';
 import '../../domain/models/topology_diff_result.dart';
 import '../../domain/models/topology_snapshot.dart';
 import '../../domain/models/trace_hop.dart';
 import '../../domain/models/trace_result.dart';
 import '../../domain/models/unknown_device_entry.dart';
+import '../../domain/services/diagnostic_alert_evaluator.dart';
 
 enum TopologyViewMode {
   graph,
@@ -94,6 +90,16 @@ class TopologyViewModel extends ChangeNotifier {
   bool _compareToBaseline = false;
   bool _showDiffDrawer = false;
 
+  // Preferences & Memoization State (P2, P6, I2)
+  String _lastSnmpCommunity = 'public';
+  String? _dismissedAlertsSignature;
+  bool _diffCacheDirty = true;
+  TopologyDiffResult? _cachedDiffResult;
+  List<String>? _cachedL2Alerts;
+  List<SharedDevice> _cachedDbKnownDevices = const [];
+  List<SharedDevice> _cachedDbAllDevices = const [];
+  bool _dbCacheLoaded = false;
+
   // Getters
   List<NetworkAdapterInfo> get adapters => List.unmodifiable(_adapters);
   NetworkAdapterInfo? get selectedAdapter => _selectedAdapter;
@@ -120,93 +126,35 @@ class TopologyViewModel extends ChangeNotifier {
   TopologySnapshot? get activeBaseline => _activeBaseline;
   bool get compareToBaseline => _compareToBaseline;
   bool get showDiffDrawer => _showDiffDrawer;
+  String get lastSnmpCommunity => _lastSnmpCommunity;
+
   TopologyDiffResult? get activeDiffResult {
     if (!_compareToBaseline || _activeBaseline == null) return null;
-    return TopologyDiffEngine.compare(
-      baseline: _activeBaseline!,
-      currentNodes: _repository.nodes,
-      currentEdges: _repository.edges,
-    );
+    if (_diffCacheDirty) {
+      _cachedDiffResult = TopologyDiffEngine.compare(
+        baseline: _activeBaseline!,
+        currentNodes: _repository.nodes,
+        currentEdges: _repository.edges,
+      );
+      _diffCacheDirty = false;
+    }
+    return _cachedDiffResult;
   }
 
   List<String> get l2DiagnosticAlerts {
-    final alerts = <String>[];
-    final switches = _repository.nodes.values.where((n) => n.isSwitch).toList();
-    if (switches.isEmpty) return alerts;
+    return _cachedL2Alerts ??= DiagnosticAlertEvaluator.evaluate(
+      nodes: _repository.nodes,
+      edges: _repository.edges,
+      isListeningIgmp: _l2ScanPhase == L2ScanPhase.listeningIgmp,
+    );
+  }
 
-    final stpRoots = switches.where((s) => s.isStpRootBridge).toList();
-    final queriers = _repository.nodes.values.where((n) => n.isIgmpQuerier).toList();
-
-    // 1. Ring Split Detection
-    for (final edge in _repository.edges.values) {
-      if (edge.stpState == LinkStpState.blocking) {
-        final blkNode = edge.blockingSwitchId != null ? _repository.nodes[edge.blockingSwitchId!] : null;
-        final swName = blkNode?.displayName ?? edge.blockingSwitchId ?? edge.targetIp;
-        final portLabel = edge.blockingPortName != null ? ' (${edge.blockingPortName})' : '';
-        alerts.add('STP Ring Split: Link ${edge.sourceIp} ↔ ${edge.targetIp} is Blocking at $swName$portLabel.');
-      }
+  List<String> get visibleL2DiagnosticAlerts {
+    final alerts = l2DiagnosticAlerts;
+    if (alerts.isEmpty) return const [];
+    if (_dismissedAlertsSignature != null && alerts.join('|') == _dismissedAlertsSignature) {
+      return const [];
     }
-
-    // 2. Default STP Priority (32768) Warning
-    for (final root in stpRoots) {
-      if (root.stpPriority == 32768) {
-        alerts.add('Default STP Priority (32768) on Root Bridge "${root.displayName}". Lower priority (e.g. 4096) recommended to anchor root.');
-      }
-    }
-
-    // 3. Missing IGMP Querier when Snooping is Active
-    final snoopingActive = switches.any((s) => s.igmpSnoopingEnabled);
-    if (snoopingActive && queriers.isEmpty && _l2ScanPhase != L2ScanPhase.listeningIgmp) {
-      alerts.add('IGMP Snooping is active but no IGMP Querier was detected. Multicast streams may flood or timeout.');
-    }
-
-    // 4. Misaligned STP Root & IGMP Querier Warning
-    if (stpRoots.isNotEmpty && queriers.isNotEmpty) {
-      final root = stpRoots.first;
-      final querier = queriers.first;
-      if (root.id != querier.id) {
-        alerts.add('Misaligned STP Root & IGMP Querier: STP Root is "${root.displayName}" while IGMP Querier is "${querier.displayName}". Multicast traffic may traverse suboptimal paths.');
-      }
-    }
-
-    // 5. Trunk VLAN Mismatches & Link Health (Issues #4 & #5)
-    for (final edge in _repository.edges.values) {
-      final srcName = _repository.nodes[edge.sourceIp]?.displayName ?? edge.sourceIp;
-      final dstName = _repository.nodes[edge.targetIp]?.displayName ?? edge.targetIp;
-
-      final vlanRep = edge.vlanMismatch;
-      if (vlanRep != null && vlanRep.hasAnyMismatch) {
-        if (vlanRep.hasNativeVlanMismatch) {
-          alerts.add('VLAN Native PVID Mismatch: $srcName ↔ $dstName (PVID ${vlanRep.sideANativeVlan} ≠ ${vlanRep.sideBNativeVlan}).');
-        }
-        final pruned = <int>{...vlanRep.missingOnSideA, ...vlanRep.missingOnSideB}.toList()..sort();
-        if (pruned.isNotEmpty) {
-          alerts.add('Trunk VLAN Pruned: $srcName ↔ $dstName missing VLAN ${pruned.join(", ")}.');
-        }
-      }
-
-      if (edge.isHalfDuplex) {
-        alerts.add('Half-Duplex Trunk: $srcName ↔ $dstName negotiated Half-Duplex.');
-      } else if (edge.isDegradedSpeed) {
-        alerts.add('Degraded Trunk Speed: $srcName ↔ $dstName linked at ${edge.linkSpeedMbps} Mbps.');
-      }
-      if (edge.hasActiveErrors) {
-        alerts.add('Active Link Errors: $srcName ↔ $dstName (+${edge.inErrorsDelta} CRC/InErrors, +${edge.outDiscardsDelta} Drops).');
-      }
-    }
-
-    // 6. PoE Budget & Port Fault Warnings (Issue #7)
-    for (final sw in switches) {
-      final poe = sw.poeStatus;
-      if (poe == null) continue;
-      if (poe.isNearCapacity) {
-        alerts.add('PoE Budget High (${poe.utilizationPercent.round()}%): "${sw.displayName}" at ${poe.consumedWatts}W / ${poe.totalBudgetWatts}W.');
-      }
-      if (poe.hasPortFaults) {
-        alerts.add('PoE Port Fault on "${sw.displayName}": check powered device cabling/overload.');
-      }
-    }
-
     return alerts;
   }
   bool get showAutoDetected => _showAutoDetected;
@@ -305,14 +253,28 @@ class TopologyViewModel extends ChangeNotifier {
     return counts;
   }
 
+  void _refreshDbDeviceCache() {
+    if (!SharedDeviceDatabase.instance.isInitialized) {
+      _cachedDbKnownDevices = const [];
+      _cachedDbAllDevices = const [];
+      _dbCacheLoaded = false;
+      return;
+    }
+    try {
+      _cachedDbKnownDevices = SharedDeviceDatabase.instance.getAllDevices(hideDefaultNamed: true);
+      _cachedDbAllDevices = SharedDeviceDatabase.instance.getAllDevices(hideDefaultNamed: false);
+      _dbCacheLoaded = true;
+    } catch (_) {
+      _cachedDbKnownDevices = const [];
+      _cachedDbAllDevices = const [];
+    }
+  }
+
   /// Returns all devices in SharedDeviceDatabase that have user-assigned custom names.
   List<SharedDevice> get allKnownCustomDevices {
     if (!SharedDeviceDatabase.instance.isInitialized) return const [];
-    try {
-      return SharedDeviceDatabase.instance.getAllDevices(hideDefaultNamed: true);
-    } catch (_) {
-      return const [];
-    }
+    if (!_dbCacheLoaded) _refreshDbDeviceCache();
+    return _cachedDbKnownDevices;
   }
 
   /// Known custom devices that are not hidden in Net Route Scout (shown as filter pills).
@@ -320,13 +282,9 @@ class TopologyViewModel extends ChangeNotifier {
 
   /// Returns all labeled devices from SharedDeviceDatabase that are not hidden in Net Route Scout.
   List<SharedDevice> get visibleSharedDevices {
-    if (!SharedDeviceDatabase.instance.isInitialized) return const [];
-    try {
-      final all = SharedDeviceDatabase.instance.getAllDevices(hideDefaultNamed: true);
-      return all.where((d) => !_hiddenDeviceMacs.contains(d.macAddress)).toList();
-    } catch (_) {
-      return const [];
-    }
+    final all = allKnownCustomDevices;
+    if (all.isEmpty) return const [];
+    return all.where((d) => !_hiddenDeviceMacs.contains(d.macAddress)).toList();
   }
 
   /// Returns all unknown/unnamed devices (devices in database without custom names,
@@ -338,25 +296,23 @@ class TopologyViewModel extends ChangeNotifier {
 
     // 1. Devices in SharedDeviceDatabase without custom names
     if (SharedDeviceDatabase.instance.isInitialized) {
-      try {
-        final allDbDevices = SharedDeviceDatabase.instance.getAllDevices(hideDefaultNamed: false);
-        for (final dev in allDbDevices) {
-          if (!dev.hasCustomName) {
-            final key = dev.macAddress;
-            if (seenKeys.add(key)) {
-              final isShown = _showAutoDetected || _explicitlyShownMacs.contains(key);
-              results.add(UnknownDeviceEntry(
-                key: key,
-                macAddress: dev.macAddress,
-                displayName: dev.name.isNotEmpty ? dev.name : 'Device ${dev.macAddress}',
-                vendor: dev.vendor,
-                isInDatabase: true,
-                isHidden: !isShown,
-              ));
-            }
+      if (!_dbCacheLoaded) _refreshDbDeviceCache();
+      for (final dev in _cachedDbAllDevices) {
+        if (!dev.hasCustomName) {
+          final key = dev.macAddress;
+          if (seenKeys.add(key)) {
+            final isShown = _showAutoDetected || _explicitlyShownMacs.contains(key);
+            results.add(UnknownDeviceEntry(
+              key: key,
+              macAddress: dev.macAddress,
+              displayName: dev.name.isNotEmpty ? dev.name : 'Device ${dev.macAddress}',
+              vendor: dev.vendor,
+              isInDatabase: true,
+              isHidden: !isShown,
+            ));
           }
         }
-      } catch (_) {}
+      }
     }
 
     // 2. Active topology nodes without custom names
@@ -390,28 +346,6 @@ class TopologyViewModel extends ChangeNotifier {
   /// Unknown devices that are unhidden and shown as filter pills.
   List<UnknownDeviceEntry> get visibleUnknownDevices =>
       allUnknownDevices.where((d) => !d.isHidden).toList();
-
-  /// Returns active auto-detected nodes in current topology that do not have a custom labeled entry
-  /// in visibleSharedDevices and are shown.
-  List<NetworkNode> get autoDetectedUnlabeledNodes {
-    final labeledMacs = visibleSharedDevices.map((d) => d.macAddress).toSet();
-    final seen = <String>{};
-    final result = <NetworkNode>[];
-    for (final node in _repository.nodes.values) {
-      if (node.isLocalHost) continue;
-      final mac = node.macAddress != null && node.macAddress!.isNotEmpty
-          ? SharedDevice.normalizeMac(node.macAddress!)
-          : null;
-      final key = mac ?? node.ip;
-      if (mac != null && labeledMacs.contains(mac)) continue;
-      final isShown = _showAutoDetected || _explicitlyShownMacs.contains(key);
-      if (!isShown) continue;
-      if (seen.add(key)) {
-        result.add(node);
-      }
-    }
-    return result;
-  }
 
   List<NetworkNode> get selectedPathBreadcrumbs =>
       selectedNodeId != null ? _repository.getPathBreadcrumbs(selectedNodeId!) : const [];
@@ -480,11 +414,17 @@ class TopologyViewModel extends ChangeNotifier {
     }
   }
 
+  void _invalidateDerivedCaches() {
+    _diffCacheDirty = true;
+    _cachedL2Alerts = null;
+  }
+
   /// Safe notifyListener calls that guard against disposed state.
   void _notify() {
     if (!_disposed) {
       _throttleTimer?.cancel();
       _needsNotify = false;
+      _invalidateDerivedCaches();
       notifyListeners();
     }
   }
@@ -496,11 +436,13 @@ class TopologyViewModel extends ChangeNotifier {
       _needsNotify = true;
       return;
     }
+    _invalidateDerivedCaches();
     notifyListeners();
     _throttleTimer = Timer(interval, () {
       if (_disposed) return;
       if (_needsNotify) {
         _needsNotify = false;
+        _invalidateDerivedCaches();
         notifyListeners();
       }
     });
@@ -513,6 +455,7 @@ class TopologyViewModel extends ChangeNotifier {
       _hiddenDeviceMacs = Set.from(prefs.hiddenDeviceMacs);
       _explicitlyShownMacs = Set.from(prefs.explicitlyShownMacs);
       _selectedDeviceKeys = Set.from(prefs.selectedDeviceKeys);
+      _lastSnmpCommunity = prefs.lastSnmpCommunity;
       _repository.restoreCustomSwitches(
         switchNodeIds: prefs.customSwitchNodeIds,
         switchLinks: prefs.customSwitchLinks,
@@ -524,6 +467,7 @@ class TopologyViewModel extends ChangeNotifier {
     try {
       await _sharedDeviceService.init();
       _isSharedDbConnected = SharedDeviceDatabase.instance.isInitialized;
+      _refreshDbDeviceCache();
       _dbSubscription = _sharedDeviceService.onDatabaseChanged.listen((_) {
         _syncSharedMetadata();
       });
@@ -561,7 +505,7 @@ class TopologyViewModel extends ChangeNotifier {
       final args = _initialArgs!;
       _initialArgs = null;
       await handleIncomingCommand(
-        target: args.target,
+        target: args.effectiveTarget,
         adapterIp: args.adapterIp,
         adapterName: args.adapterName,
         autoStart: args.autoStart,
@@ -941,13 +885,24 @@ class TopologyViewModel extends ChangeNotifier {
         customSwitchNodeIds: _repository.customSwitchNodeIds,
         customSwitchLinks: _repository.customSwitchLinks,
         customSwitchPorts: _repository.customSwitchPorts,
+        lastSnmpCommunity: _lastSnmpCommunity,
       ),
     );
+  }
+
+  void setLastSnmpCommunity(String community) {
+    final trimmed = community.trim();
+    if (trimmed.isEmpty || _lastSnmpCommunity == trimmed) return;
+    _lastSnmpCommunity = trimmed;
+    _savePreferences();
+    _notify();
   }
 
   // ==========================================
   // SWITCH TOPOLOGY MANIPULATION
   // ==========================================
+
+  Map<String, int> getEffectiveNodeDepths() => _repository.computeTopologicalDepths();
 
   int getEffectiveNodeDepth(String nodeId) => _repository.getEffectiveDepth(nodeId);
 
@@ -967,6 +922,7 @@ class TopologyViewModel extends ChangeNotifier {
         );
       }
     }
+    _dismissedAlertsSignature = null;
     _savePreferences();
     _notify();
   }
@@ -1000,18 +956,45 @@ class TopologyViewModel extends ChangeNotifier {
 
   void connectNodeToSwitch(String childNodeId, String switchNodeId, {String? portLabel}) {
     _repository.connectNodeToSwitch(childNodeId, switchNodeId, portLabel: portLabel);
+    _dismissedAlertsSignature = null;
     _savePreferences();
     _notify();
   }
 
   void disconnectNodeFromSwitch(String childNodeId) {
     _repository.disconnectNodeFromSwitch(childNodeId);
+    _dismissedAlertsSignature = null;
+    _savePreferences();
+    _notify();
+  }
+
+  void linkSwitchNeighbor({
+    required String switchId,
+    required String neighborId,
+    required String localPort,
+    required String remotePort,
+  }) {
+    _repository.linkSwitchNeighbor(
+      switchId: switchId,
+      neighborId: neighborId,
+      localPort: localPort,
+      remotePort: remotePort,
+    );
+    _dismissedAlertsSignature = null;
     _savePreferences();
     _notify();
   }
 
   void applyStpAndIgmpFromSnmp(String switchNodeId, SwitchDiscoveryResult result) {
     _repository.applyStpAndIgmpFromSnmp(switchNodeId, result);
+    _dismissedAlertsSignature = null;
+    _notify();
+  }
+
+  void dismissAlertBanner() {
+    _statusBannerText = null;
+    final alerts = l2DiagnosticAlerts;
+    _dismissedAlertsSignature = alerts.isNotEmpty ? alerts.join('|') : null;
     _notify();
   }
 
@@ -1137,34 +1120,6 @@ class TopologyViewModel extends ChangeNotifier {
     _notify();
   }
 
-  void setDeviceHidden(String key, bool isHidden) {
-    final normalized = SharedDevice.isValidMac(key) ? SharedDevice.normalizeMac(key) : key;
-    final isKnown = allKnownCustomDevices.any((d) => d.macAddress == normalized);
-    final isUnknown = allUnknownDevices.any((d) => d.key == normalized || d.macAddress == normalized);
-
-    if (isUnknown && !isKnown) {
-      if (isHidden) {
-        _explicitlyShownMacs = Set.from(_explicitlyShownMacs)..remove(normalized);
-        if (_selectedDeviceKeys.contains(normalized)) {
-          toggleDevicePill(normalized);
-        }
-      } else {
-        _explicitlyShownMacs = Set.from(_explicitlyShownMacs)..add(normalized);
-      }
-    } else {
-      if (isHidden) {
-        _hiddenDeviceMacs = Set.from(_hiddenDeviceMacs)..add(normalized);
-        if (_selectedDeviceKeys.contains(normalized)) {
-          toggleDevicePill(normalized);
-        }
-      } else {
-        _hiddenDeviceMacs = Set.from(_hiddenDeviceMacs)..remove(normalized);
-      }
-    }
-    _savePreferences();
-    _notify();
-  }
-
   void unhideAllDevices() {
     _hiddenDeviceMacs = {};
     _showAutoDetected = true;
@@ -1202,52 +1157,6 @@ class TopologyViewModel extends ChangeNotifier {
     _notify();
   }
 
-  void updateDeviceMetadata({
-    required String macAddress,
-    required String name,
-    String? category,
-    String? vendor,
-    String? notes,
-    String? ip,
-  }) {
-    final normMac = SharedDevice.isValidMac(macAddress)
-        ? SharedDevice.normalizeMac(macAddress)
-        : macAddress;
-    final existing = _sharedDeviceService.getDeviceByMac(normMac);
-    if (existing != null) {
-      _sharedDeviceService.updateDeviceDetails(
-        normMac,
-        name: name,
-        deviceType: category,
-        vendor: vendor,
-        notes: notes,
-      );
-    } else {
-      _sharedDeviceService.registerDevice(
-        rawMac: normMac,
-        name: name,
-        vendor: vendor,
-        deviceType: category,
-        notes: notes,
-      );
-    }
-    _hiddenDeviceMacs = Set.from(_hiddenDeviceMacs)..remove(normMac);
-    _explicitlyShownMacs = Set.from(_explicitlyShownMacs)..remove(normMac);
-    _savePreferences();
-    if (ip != null && ip.isNotEmpty) {
-      _repository.updateNodeSharedMetadata(
-        ip,
-        name: name,
-        category: category,
-        vendor: vendor,
-        notes: notes,
-        macAddress: normMac,
-      );
-    }
-    _syncSharedMetadata();
-    _notify();
-  }
-
   void selectNode(String? nodeId) {
     _repository.selectNode(nodeId);
     _notify();
@@ -1263,6 +1172,7 @@ class TopologyViewModel extends ChangeNotifier {
     _repository.clear();
     _scanProgress = const ScanProgress();
     _statusBannerText = null;
+    _dismissedAlertsSignature = null;
     _notify();
   }
 
@@ -1295,6 +1205,7 @@ class TopologyViewModel extends ChangeNotifier {
     }
 
     // Launch passive Layer 2 scans (4s STP -> 130s IGMP Querier) alongside sweep
+    _dismissedAlertsSignature = null;
     startPassiveL2Scans();
 
     // Clear active selection and filters that would mask or dim newly scanned topology
@@ -1486,6 +1397,7 @@ class TopologyViewModel extends ChangeNotifier {
 
   /// Syncs shared device metadata when `shared_devices.db` changes.
   void _syncSharedMetadata() {
+    _refreshDbDeviceCache();
     _repository.enrichNodes(
       arpCache: _cachedArp,
       sharedDeviceService: _sharedDeviceService,
@@ -1495,7 +1407,7 @@ class TopologyViewModel extends ChangeNotifier {
 
   /// Updates or creates friendly device name and metadata in `shared_devices.db`.
   void updateDeviceDetails({
-    required String ip,
+    String ip = '',
     required String rawMac,
     required String name,
     String? category,
@@ -1526,218 +1438,32 @@ class TopologyViewModel extends ChangeNotifier {
     _explicitlyShownMacs = Set.from(_explicitlyShownMacs)..remove(normMac);
     _savePreferences();
 
-    _repository.updateNodeSharedMetadata(
-      ip,
-      name: name,
-      category: category,
-      vendor: vendor,
-      notes: notes,
-      macAddress: normMac,
-    );
+    if (ip.isNotEmpty) {
+      _repository.updateNodeSharedMetadata(
+        ip,
+        name: name,
+        category: category,
+        vendor: vendor,
+        notes: notes,
+        macAddress: normMac,
+      );
+    }
 
-    _notify();
+    _refreshDbDeviceCache();
+    _syncSharedMetadata();
   }
 
   /// Loads realistic enterprise demo topology with rich multi-hop structure.
   void loadDemoTopology() {
-    _repository.clear();
-    _repository.setLocalHost(DemoDataGenerator.localHostIp, gatewayIp: DemoDataGenerator.gatewayIp);
-
-    // Ingest all demo traces
-    final demoTraces = DemoDataGenerator.generateDemoTraces();
-    for (final trace in demoTraces) {
-      _repository.ingestTraceResult(trace);
-    }
-
-    // Populate local node metadata for demo presentation (isolated from SharedDeviceDatabase)
-    for (final entry in DemoDataGenerator.demoDeviceCatalog.entries) {
-      final ip = entry.key;
-      final data = entry.value;
-      final mac = data['mac']!;
-      final name = data['name']!;
-      final vendor = data['vendor']!;
-      final type = data['type']!;
-      final notes = data['notes']!;
-
-      _repository.updateNodeSharedMetadata(
-        ip,
-        name: name,
-        category: type,
-        vendor: vendor,
-        notes: notes,
-        macAddress: mac,
-      );
-    }
-
-    // Configure demo switch hierarchy (Core/Distribution switch -> Access switch -> Endpoints)
-    _repository.defineNodeAsSwitch('10.0.2.1', isSwitch: true, name: 'Engineering Distribution Switch');
-    _repository.connectNodeToSwitch('10.0.2.20', '10.0.2.1', portLabel: 'Port 1 (DevOps)');
-    _repository.connectNodeToSwitch('10.0.2.55', '10.0.2.1', portLabel: 'Port 10 (10GbE NAS)');
-
-    final accessSwitch = _repository.addStandaloneSwitch(
-      name: 'Floor 2 Access Switch',
-      ip: '10.0.2.2',
-      model: 'Aruba 2930F 24G PoE+',
-      upstreamNodeId: '10.0.2.1',
-    );
-    _repository.connectNodeToSwitch(accessSwitch.id, '10.0.2.1', portLabel: 'Uplink 1/24');
-    _repository.connectNodeToSwitch('10.0.2.101', accessSwitch.id, portLabel: 'Port 5 (MacBook)');
-    _repository.connectNodeToSwitch('10.0.2.215', accessSwitch.id, portLabel: 'Port 12 (Conf TV)');
-
-    final ringEdgeSwitch = _repository.addStandaloneSwitch(
-      name: 'Stage Left AV Switch',
-      ip: '10.0.2.3',
-      model: 'Luminex GigaCore 16RFO',
-      upstreamNodeId: '10.0.2.1',
-    );
-    _repository.connectNodeToSwitch(ringEdgeSwitch.id, '10.0.2.1', portLabel: 'Fiber Trunk 1/26');
-
-    // Enrich Demo Switches with STP Root Bridge, Ring Split, IGMP Querier, VLAN, Health & PoE telemetry
-    final demoSampleTime = DateTime.now();
-    final distNode = _repository.nodes['10.0.2.1'];
-    if (distNode != null) {
-      _repository.updateNodeDirect(distNode.copyWith(
-        isStpRootBridge: true,
-        stpPriority: 4096,
-        stpBridgeId: '4096 / AA:BB:CC:11:22:01',
-        stpDesignatedRootId: '4096 / AA:BB:CC:11:22:01',
-        stpRootCost: 0,
-        isIgmpQuerier: true,
-        igmpQuerierVersion: 'IGMPv3',
-        igmpSnoopingEnabled: true,
-        igmpVlans: const [
-          IgmpVlanStatus(
-            vlanId: 1,
-            vlanName: 'Default / AV Control',
-            snoopingEnabled: true,
-            localQuerierEnabled: true,
-            activeQuerierIp: '10.0.2.1',
-            igmpVersion: 3,
-            isLocalSwitchQuerier: true,
-          ),
-        ],
-        stpPorts: const [
-          StpPortInfo(bridgePort: 1, ifIndex: 1, interfaceName: 'Gi1/0/1', state: StpPortState.forwarding, role: StpPortRole.designated),
-          StpPortInfo(bridgePort: 24, ifIndex: 24, interfaceName: 'Gi1/0/24', state: StpPortState.forwarding, role: StpPortRole.designated),
-          StpPortInfo(bridgePort: 26, ifIndex: 26, interfaceName: 'Te1/0/26', state: StpPortState.forwarding, role: StpPortRole.designated),
-        ],
-        vlanNames: const {1: 'MGMT', 10: 'CONTROL', 20: 'DANTE_AUDIO'},
-        portVlans: const [
-          PortVlanConfig(bridgePort: 24, ifIndex: 24, interfaceName: 'Uplink 1/24', nativePvid: 1, allowedVlans: {1, 10, 20}, untaggedVlans: {1}),
-          PortVlanConfig(bridgePort: 26, ifIndex: 26, interfaceName: 'Fiber Trunk 1/26', nativePvid: 1, allowedVlans: {1, 10, 20}, untaggedVlans: {1}),
-        ],
-        interfaceHealth: [
-          InterfaceHealthStats(ifIndex: 24, interfaceName: 'Uplink 1/24', speedMbps: 1000, duplex: DuplexMode.fullDuplex, sampledAt: demoSampleTime),
-          InterfaceHealthStats(ifIndex: 26, interfaceName: 'Fiber Trunk 1/26', speedMbps: 10000, duplex: DuplexMode.fullDuplex, sampledAt: demoSampleTime),
-        ],
-      ));
-    }
-
-    final accessNode = _repository.nodes[accessSwitch.id];
-    if (accessNode != null) {
-      _repository.updateNodeDirect(accessNode.copyWith(
-        stpPriority: 32768,
-        stpBridgeId: '32768 / AA:BB:CC:11:22:02',
-        stpDesignatedRootId: '4096 / AA:BB:CC:11:22:01',
-        stpRootCost: 4,
-        igmpSnoopingEnabled: true,
-        igmpVlans: const [
-          IgmpVlanStatus(
-            vlanId: 1,
-            vlanName: 'Default / AV Control',
-            snoopingEnabled: true,
-            activeQuerierIp: '10.0.2.1',
-            igmpVersion: 3,
-          ),
-        ],
-        stpPorts: const [
-          StpPortInfo(bridgePort: 24, ifIndex: 24, interfaceName: 'Uplink 1/24', state: StpPortState.forwarding, role: StpPortRole.root),
-          StpPortInfo(bridgePort: 25, ifIndex: 25, interfaceName: 'Ring 1/25', state: StpPortState.blocking, role: StpPortRole.alternate),
-        ],
-        vlanNames: const {1: 'MGMT', 10: 'CONTROL', 20: 'DANTE_AUDIO'},
-        portVlans: const [
-          PortVlanConfig(bridgePort: 24, ifIndex: 24, interfaceName: 'Uplink 1/24', nativePvid: 1, allowedVlans: {1, 10, 20}, untaggedVlans: {1}),
-          PortVlanConfig(bridgePort: 25, ifIndex: 25, interfaceName: 'Ring 1/25', nativePvid: 1, allowedVlans: {1, 10}, untaggedVlans: {1}),
-        ],
-        interfaceHealth: [
-          InterfaceHealthStats(ifIndex: 24, interfaceName: 'Uplink 1/24', speedMbps: 1000, duplex: DuplexMode.fullDuplex, sampledAt: demoSampleTime),
-          InterfaceHealthStats(ifIndex: 25, interfaceName: 'Ring 1/25', speedMbps: 100, duplex: DuplexMode.fullDuplex, inErrors: 14, inErrorsDelta: 3, sampledAt: demoSampleTime),
-        ],
-        poeStatus: const SwitchPoeStatus(
-          totalBudgetWatts: 195,
-          consumedWatts: 162,
-          ports: [
-            PoePortDetail(portIndex: 5, interfaceName: 'Port 5 (MacBook)', state: PoePortState.searching),
-            PoePortDetail(portIndex: 12, interfaceName: 'Port 12 (Conf TV)', state: PoePortState.deliveringPower, powerClass: 'Class 4', drawWatts: 24.5),
-          ],
-        ),
-      ));
-    }
-
-    final ringNode = _repository.nodes[ringEdgeSwitch.id];
-    if (ringNode != null) {
-      _repository.updateNodeDirect(ringNode.copyWith(
-        stpPriority: 32768,
-        stpBridgeId: '32768 / AA:BB:CC:11:22:03',
-        stpDesignatedRootId: '4096 / AA:BB:CC:11:22:01',
-        stpRootCost: 4,
-        igmpSnoopingEnabled: true,
-        stpPorts: const [
-          StpPortInfo(bridgePort: 26, ifIndex: 26, interfaceName: 'Fiber 1/26', state: StpPortState.forwarding, role: StpPortRole.root),
-        ],
-        vlanNames: const {1: 'MGMT', 10: 'CONTROL'},
-        portVlans: const [
-          // Intentionally prune VLAN 20 on Stage Left switch to demonstrate Issue #4 alert & badge
-          PortVlanConfig(bridgePort: 26, ifIndex: 26, interfaceName: 'Fiber 1/26', nativePvid: 1, allowedVlans: {1, 10}, untaggedVlans: {1}),
-        ],
-        interfaceHealth: [
-          InterfaceHealthStats(ifIndex: 26, interfaceName: 'Fiber 1/26', speedMbps: 10000, duplex: DuplexMode.fullDuplex, sampledAt: demoSampleTime),
-        ],
-        poeStatus: const SwitchPoeStatus(
-          totalBudgetWatts: 150,
-          consumedWatts: 68,
-          ports: [
-            PoePortDetail(portIndex: 1, interfaceName: 'Port 1 (sACN Node)', state: PoePortState.deliveringPower, powerClass: 'Class 3', drawWatts: 12.4),
-          ],
-        ),
-      ));
-    }
-
-    // Populate port names on demo switch-to-switch trunks for VLAN & speed correlation
-    final distToAccess = _repository.edges['10.0.2.1->${accessSwitch.id}'];
-    if (distToAccess != null) {
-      _repository.updateEdgeDirect(distToAccess.copyWith(
-        sourcePortName: 'Uplink 1/24',
-        targetPortName: 'Uplink 1/24',
-      ));
-    }
-    final distToRing = _repository.edges['10.0.2.1->${ringEdgeSwitch.id}'];
-    if (distToRing != null) {
-      _repository.updateEdgeDirect(distToRing.copyWith(
-        sourcePortName: 'Fiber Trunk 1/26',
-        targetPortName: 'Fiber 1/26',
-      ));
-    }
-
-    // Add blocked ring split edge between Stage Left AV Switch <-> Floor 2 Access Switch
-    _repository.updateEdgeDirect(NetworkEdge(
-      sourceIp: ringEdgeSwitch.id,
-      targetIp: accessSwitch.id,
-      stpState: LinkStpState.blocking,
-      blockingSwitchId: accessSwitch.id,
-      blockingPortName: 'Ring 1/25',
-      sourcePortName: 'Fiber 1/26',
-      targetPortName: 'Ring 1/25',
-    ));
-    _repository.correlateStpEdges();
-
+    final targetCount = DemoDataGenerator.populateDemoRepository(_repository);
     _scanProgress = ScanProgress(
       phase: 'Demo Topology Loaded (${_repository.nodes.length} nodes, ${_repository.edges.length} edges)',
-      totalTargets: demoTraces.length,
-      completedTargets: demoTraces.length,
+      totalTargets: targetCount,
+      completedTargets: targetCount,
       isScanning: false,
     );
     _statusBannerText = null;
+    _dismissedAlertsSignature = null;
     _notify();
   }
 

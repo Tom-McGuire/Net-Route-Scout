@@ -32,6 +32,8 @@ void main() {
       final parsed = InterAppArguments.fromArgs(args);
       expect(parsed.subnet, '10.0.0.0/24');
       expect(parsed.target, isNull);
+      expect(parsed.effectiveTarget, '10.0.0.0/24');
+      expect(parsed.hasCommand, isTrue);
       expect(parsed.autoStart, isFalse);
     });
 

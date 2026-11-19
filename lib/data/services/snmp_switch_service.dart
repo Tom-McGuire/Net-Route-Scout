@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -11,6 +12,57 @@ import '../../domain/models/switch_poe_status.dart';
 
 class SnmpSwitchService {
   static const Duration defaultTimeout = Duration(seconds: 4);
+
+  static String _oidString(Oid oid) {
+    final raw = oid.identifier ??
+        oid.toString().replaceFirst('Oid(', '').replaceFirst(RegExp(r'\)$'), '');
+    return raw.startsWith('.') ? raw.substring(1) : raw;
+  }
+
+  static bool _isReadableVarbind(Varbind vb) {
+    return vb.tag != VarbindType.noSuchObject.value &&
+        vb.tag != VarbindType.noSuchInstance.value &&
+        vb.tag != VarbindType.endOfMibView.value;
+  }
+
+  static Future<Message?> _safeGet(Snmp session, String oidStr) async {
+    try {
+      return await session.get(Oid.fromString(oidStr)).timeout(defaultTimeout);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<void> _safeWalk(
+    Snmp session,
+    String baseOid,
+    void Function(String oidStr, Varbind vb) onVarbind,
+  ) async {
+    try {
+      final stream = session
+          .walk(oid: Oid.fromString(baseOid))
+          .timeout(defaultTimeout * 2);
+      await for (final msg in stream) {
+        for (final vb in msg.pdu.varbinds) {
+          final oidStr = _oidString(vb.oid);
+          if (oidStr != baseOid && !oidStr.startsWith('$baseOid.')) {
+            return;
+          }
+          if (!_isReadableVarbind(vb)) continue;
+          onVarbind(oidStr, vb);
+        }
+      }
+    } catch (_) {}
+  }
+
+  static ({String key, int localPortNum})? _extractLldpKey(String oidStr) {
+    final oidParts = oidStr.split('.');
+    if (oidParts.length < 2) return null;
+    final localPortNum = int.tryParse(oidParts[oidParts.length - 2]);
+    final remIdx = oidParts[oidParts.length - 1];
+    if (localPortNum == null || remIdx.isEmpty) return null;
+    return (key: '$localPortNum.$remIdx', localPortNum: localPortNum);
+  }
 
   /// Probes and queries a switch via SNMP v2c (or v1) to retrieve system info,
   /// bridge forwarding database (MAC -> Port), and LLDP neighbor links.
@@ -27,6 +79,7 @@ class SnmpSwitchService {
       port: port,
       version: version,
       retries: 1,
+      timeout: defaultTimeout,
     );
 
     String sysName = targetIp;
@@ -69,438 +122,355 @@ class SnmpSwitchService {
     final poePortClasses = <int, String>{};
     final poePortWatts = <int, double>{};
 
+    bool sessionClosed = false;
     try {
       // 1. System info: sysName.0 (1.3.6.1.2.1.1.5.0) and sysDescr.0 (1.3.6.1.2.1.1.1.0)
-      try {
-        final sysNameMsg = await session.get(Oid.fromString('1.3.6.1.2.1.1.5.0'));
-        if (sysNameMsg.pdu.varbinds.isNotEmpty) {
-          final val = sysNameMsg.pdu.varbinds.first.value.toString().trim();
+      bool sysResponded = false;
+      final sysNameMsg = await _safeGet(session, '1.3.6.1.2.1.1.5.0');
+      if (sysNameMsg != null) {
+        sysResponded = true;
+        if (sysNameMsg.pdu.varbinds.isNotEmpty &&
+            _isReadableVarbind(sysNameMsg.pdu.varbinds.first)) {
+          final val = sysNameMsg.pdu.varbinds.first.value?.toString().trim() ?? '';
           if (val.isNotEmpty) sysName = val;
         }
-      } catch (_) {}
+      }
 
-      try {
-        final sysDescrMsg = await session.get(Oid.fromString('1.3.6.1.2.1.1.1.0'));
-        if (sysDescrMsg.pdu.varbinds.isNotEmpty) {
-          final val = sysDescrMsg.pdu.varbinds.first.value.toString().trim();
+      final sysDescrMsg = await _safeGet(session, '1.3.6.1.2.1.1.1.0');
+      if (sysDescrMsg != null) {
+        sysResponded = true;
+        if (sysDescrMsg.pdu.varbinds.isNotEmpty &&
+            _isReadableVarbind(sysDescrMsg.pdu.varbinds.first)) {
+          final val = sysDescrMsg.pdu.varbinds.first.value?.toString().trim() ?? '';
           if (val.isNotEmpty) sysDescr = val;
         }
-      } catch (_) {}
+      }
+
+      if (!sysResponded) {
+        session.close();
+        sessionClosed = true;
+        throw TimeoutException(
+          'SNMP host $targetIp:$port did not respond to sysName/sysDescr',
+          defaultTimeout,
+        );
+      }
 
       // 2. Map dot1dBasePort to ifIndex (1.3.6.1.2.1.17.1.4.1.2)
-      try {
-        final basePortStream = session.walk(oid: Oid.fromString('1.3.6.1.2.1.17.1.4.1.2'));
-        await for (final msg in basePortStream) {
-          for (final vb in msg.pdu.varbinds) {
-            final oidStr = vb.oid.toString();
-            final portNum = int.tryParse(oidStr.split('.').last);
-            final ifIdx = int.tryParse(vb.value.toString());
-            if (portNum != null && ifIdx != null) {
-              ifIndexToPort[ifIdx] = portNum;
-              ports[portNum] = SwitchPortEntry(
-                portNumber: portNum,
-                ifIndex: ifIdx,
-                portName: 'Port $portNum',
-              );
-            }
-          }
+      await _safeWalk(session, '1.3.6.1.2.1.17.1.4.1.2', (oidStr, vb) {
+        final portNum = int.tryParse(oidStr.split('.').last);
+        final ifIdx = int.tryParse(vb.value.toString());
+        if (portNum != null && ifIdx != null) {
+          ifIndexToPort[ifIdx] = portNum;
+          ports[portNum] = SwitchPortEntry(
+            portNumber: portNum,
+            ifIndex: ifIdx,
+            portName: 'Port $portNum',
+          );
         }
-      } catch (_) {}
+      });
 
       // 3. Interface names / descriptions (1.3.6.1.2.1.31.1.1.1.1 for ifName)
-      try {
-        final ifNameStream = session.walk(oid: Oid.fromString('1.3.6.1.2.1.31.1.1.1.1'));
-        await for (final msg in ifNameStream) {
-          for (final vb in msg.pdu.varbinds) {
-            final ifIdx = int.tryParse(vb.oid.toString().split('.').last);
-            final name = vb.value.toString().trim();
-            if (ifIdx != null && name.isNotEmpty) {
-              ifIndexToName[ifIdx] = name;
-              final portNum = ifIndexToPort[ifIdx];
-              if (portNum != null && ports.containsKey(portNum)) {
-                ports[portNum] = SwitchPortEntry(
-                  portNumber: portNum,
-                  ifIndex: ifIdx,
-                  portName: name,
-                  connectedMacs: ports[portNum]?.connectedMacs,
-                );
-              }
-            }
+      await _safeWalk(session, '1.3.6.1.2.1.31.1.1.1.1', (oidStr, vb) {
+        final ifIdx = int.tryParse(oidStr.split('.').last);
+        final name = vb.value?.toString().trim() ?? '';
+        if (ifIdx != null && name.isNotEmpty) {
+          ifIndexToName[ifIdx] = name;
+          final portNum = ifIndexToPort[ifIdx];
+          if (portNum != null && ports.containsKey(portNum)) {
+            ports[portNum] = SwitchPortEntry(
+              portNumber: portNum,
+              ifIndex: ifIdx,
+              portName: name,
+              connectedMacs: ports[portNum]?.connectedMacs,
+            );
           }
         }
-      } catch (_) {}
+      });
 
       // 4. Forwarding Database (FDB): dot1dTpFdbPort (1.3.6.1.2.1.17.4.3.1.2)
       // OID: 1.3.6.1.2.1.17.4.3.1.2.m1.m2.m3.m4.m5.m6 = <dot1dBasePort>
-      try {
-        final fdbStream = session.walk(oid: Oid.fromString('1.3.6.1.2.1.17.4.3.1.2'));
-        await for (final msg in fdbStream) {
-          for (final vb in msg.pdu.varbinds) {
-            final parts = vb.oid.toString().split('.');
-            if (parts.length >= 6) {
-              final macBytes = parts.sublist(parts.length - 6).map((s) => int.tryParse(s) ?? 0).toList();
-              final macStr = macBytes.map((b) => b.toRadixString(16).padLeft(2, '0').toUpperCase()).join(':');
-              final portNum = int.tryParse(vb.value.toString());
+      await _safeWalk(session, '1.3.6.1.2.1.17.4.3.1.2', (oidStr, vb) {
+        final parts = oidStr.split('.');
+        if (parts.length >= 6) {
+          final macBytes = parts.sublist(parts.length - 6).map((s) => int.tryParse(s) ?? 0).toList();
+          final macStr = macBytes.map((b) => b.toRadixString(16).padLeft(2, '0').toUpperCase()).join(':');
+          final portNum = int.tryParse(vb.value.toString());
 
-              if (portNum != null && portNum > 0) {
-                if (!ports.containsKey(portNum)) {
-                  ports[portNum] = SwitchPortEntry(
-                    portNumber: portNum,
-                    portName: 'Port $portNum',
-                  );
-                }
-                ports[portNum]!.connectedMacs.add(macStr);
-              }
+          if (portNum != null && portNum > 0) {
+            if (!ports.containsKey(portNum)) {
+              ports[portNum] = SwitchPortEntry(
+                portNumber: portNum,
+                portName: 'Port $portNum',
+              );
             }
+            ports[portNum]!.connectedMacs.add(macStr);
           }
         }
-      } catch (_) {}
+      });
 
-      // 5. LLDP-MIB Remote Neighbors: lldpRemSysName (1.0.8802.1.1.2.1.4.1.1.9)
-      try {
-        final lldpStream = session.walk(oid: Oid.fromString('1.0.8802.1.1.2.1.4.1.1.9'));
-        await for (final msg in lldpStream) {
-          for (final vb in msg.pdu.varbinds) {
-            final remoteSys = vb.value.toString().trim();
-            if (remoteSys.isNotEmpty) {
-              final oidParts = vb.oid.toString().split('.');
-              final localPortIdx = oidParts.length > 2 ? oidParts[oidParts.length - 2] : '1';
-              final localPortName = ifIndexToName[int.tryParse(localPortIdx)] ?? 'Port $localPortIdx';
+      // 5. LLDP-MIB Remote Neighbors: lldpRemSysName (.9), lldpRemPortId (.7), lldpRemPortDesc (.8)
+      final lldpRemSysNames = <String, String>{};
+      final lldpRemPortIds = <String, String>{};
+      final lldpRemPortDescs = <String, String>{};
+      final lldpLocalPorts = <String, int>{};
 
-              neighbors.add(SwitchNeighborLink(
-                localPort: localPortName,
-                remoteSysName: remoteSys,
-                remotePort: 'Uplink',
-              ));
-            }
-          }
-        }
-      } catch (_) {}
+      await _safeWalk(session, '1.0.8802.1.1.2.1.4.1.1.9', (oidStr, vb) {
+        final remoteSys = vb.value?.toString().trim() ?? '';
+        if (remoteSys.isEmpty) return;
+        final parsed = _extractLldpKey(oidStr);
+        if (parsed == null) return;
+        lldpLocalPorts[parsed.key] = parsed.localPortNum;
+        lldpRemSysNames[parsed.key] = remoteSys;
+      });
 
-      // 6. BRIDGE-MIB STP / RSTP Status
-      try {
-        final bridgeAddrMsg = await session.get(Oid.fromString('1.3.6.1.2.1.17.1.1.0'));
-        if (bridgeAddrMsg.pdu.varbinds.isNotEmpty) {
-          stpBridgeMac = formatMacString(bridgeAddrMsg.pdu.varbinds.first.value.toString());
-        }
-      } catch (_) {}
+      await _safeWalk(session, '1.0.8802.1.1.2.1.4.1.1.7', (oidStr, vb) {
+        final portId = vb.value?.toString().trim() ?? '';
+        if (portId.isEmpty) return;
+        final parsed = _extractLldpKey(oidStr);
+        if (parsed == null) return;
+        lldpRemPortIds[parsed.key] = portId;
+      });
 
-      try {
-        final stpPrioMsg = await session.get(Oid.fromString('1.3.6.1.2.1.17.2.2.0'));
-        if (stpPrioMsg.pdu.varbinds.isNotEmpty) {
-          stpPriority = int.tryParse(stpPrioMsg.pdu.varbinds.first.value.toString());
-        }
-      } catch (_) {}
+      await _safeWalk(session, '1.0.8802.1.1.2.1.4.1.1.8', (oidStr, vb) {
+        final portDesc = vb.value?.toString().trim() ?? '';
+        if (portDesc.isEmpty) return;
+        final parsed = _extractLldpKey(oidStr);
+        if (parsed == null) return;
+        lldpRemPortDescs[parsed.key] = portDesc;
+      });
 
-      try {
-        final rootMsg = await session.get(Oid.fromString('1.3.6.1.2.1.17.2.5.0'));
-        if (rootMsg.pdu.varbinds.isNotEmpty) {
-          final parsed = parseBridgeId(rootMsg.pdu.varbinds.first.value.toString());
-          if (parsed != null) {
-            stpDesignatedRootId = parsed.formattedId;
-            stpDesignatedRootMac = parsed.mac;
-          }
-        }
-      } catch (_) {}
+      for (final entry in lldpRemSysNames.entries) {
+        final key = entry.key;
+        final remoteSys = entry.value;
+        final localPortNum = lldpLocalPorts[key]!;
+        final localPortName = ports[localPortNum]?.portName ??
+            ifIndexToName[localPortNum] ??
+            'Port $localPortNum';
+        final remoteDesc = lldpRemPortDescs[key];
+        final remotePortId = lldpRemPortIds[key];
 
-      try {
-        final rootCostMsg = await session.get(Oid.fromString('1.3.6.1.2.1.17.2.6.0'));
-        if (rootCostMsg.pdu.varbinds.isNotEmpty) {
-          stpRootCost = int.tryParse(rootCostMsg.pdu.varbinds.first.value.toString());
-        }
-      } catch (_) {}
-
-      try {
-        final rootPortMsg = await session.get(Oid.fromString('1.3.6.1.2.1.17.2.7.0'));
-        if (rootPortMsg.pdu.varbinds.isNotEmpty) {
-          stpRootPort = int.tryParse(rootPortMsg.pdu.varbinds.first.value.toString());
-        }
-      } catch (_) {}
-
-      // dot1dStpPortState (1.3.6.1.2.1.17.2.15.1.3)
-      try {
-        final stpPortStream = session.walk(oid: Oid.fromString('1.3.6.1.2.1.17.2.15.1.3'));
-        await for (final msg in stpPortStream) {
-          for (final vb in msg.pdu.varbinds) {
-            final pNum = int.tryParse(vb.oid.toString().split('.').last);
-            final code = int.tryParse(vb.value.toString());
-            if (pNum != null && code != null) {
-              stpPortStates[pNum] = StpPortState.fromCode(code);
-            }
-          }
-        }
-      } catch (_) {}
-
-      // dot1dStpPortDesignatedBridge (1.3.6.1.2.1.17.2.15.1.8)
-      try {
-        final desigStream = session.walk(oid: Oid.fromString('1.3.6.1.2.1.17.2.15.1.8'));
-        await for (final msg in desigStream) {
-          for (final vb in msg.pdu.varbinds) {
-            final pNum = int.tryParse(vb.oid.toString().split('.').last);
-            final parsed = parseBridgeId(vb.value.toString());
-            if (pNum != null && parsed != null) {
-              stpPortDesignatedBridges[pNum] = parsed.formattedId;
-            }
-          }
-        }
-      } catch (_) {}
-
-      // 7. IGMP Snooping & Querier MIBs (MGMD-STD-MIB + Cisco fallback)
-      try {
-        final snoopingStatusMsg = await session.get(Oid.fromString('1.3.6.1.4.1.9.9.263.1.1.1.1.1'));
-        if (snoopingStatusMsg.pdu.varbinds.isNotEmpty) {
-          igmpSnoopingEnabled = snoopingStatusMsg.pdu.varbinds.first.value.toString().trim() == '1';
-        }
-      } catch (_) {
-        try {
-          final cbsMsg = await session.get(Oid.fromString('1.3.6.1.4.1.9.6.1.101.55.1.1.0'));
-          if (cbsMsg.pdu.varbinds.isNotEmpty) {
-            igmpSnoopingEnabled = cbsMsg.pdu.varbinds.first.value.toString().trim() == '1';
-          }
-        } catch (_) {}
+        neighbors.add(SwitchNeighborLink(
+          localPort: localPortName,
+          remoteSysName: remoteSys,
+          remotePort: remoteDesc ?? remotePortId ?? 'Uplink',
+        ));
       }
 
-      try {
-        final igmpQuerierStream = session.walk(oid: Oid.fromString('1.3.6.1.2.1.85.1.1.1.9'));
-        await for (final msg in igmpQuerierStream) {
-          for (final vb in msg.pdu.varbinds) {
-            final ifIdx = int.tryParse(vb.oid.toString().split('.').last) ?? 1;
-            final querierIp = vb.value.toString().trim();
-            if (querierIp.isNotEmpty && querierIp != '0.0.0.0') {
-              igmpVlans.add(IgmpVlanStatus(
-                vlanId: ifIdx,
-                snoopingEnabled: igmpSnoopingEnabled,
-                activeQuerierIp: querierIp,
-                isLocalSwitchQuerier: querierIp == targetIp,
-              ));
-            }
-          }
+      // 6. BRIDGE-MIB STP / RSTP Status
+      final bridgeAddrMsg = await _safeGet(session, '1.3.6.1.2.1.17.1.1.0');
+      if (bridgeAddrMsg != null && bridgeAddrMsg.pdu.varbinds.isNotEmpty) {
+        stpBridgeMac = formatMacString(bridgeAddrMsg.pdu.varbinds.first.value.toString());
+      }
+
+      final stpPrioMsg = await _safeGet(session, '1.3.6.1.2.1.17.2.2.0');
+      if (stpPrioMsg != null && stpPrioMsg.pdu.varbinds.isNotEmpty) {
+        stpPriority = int.tryParse(stpPrioMsg.pdu.varbinds.first.value.toString());
+      }
+
+      final rootMsg = await _safeGet(session, '1.3.6.1.2.1.17.2.5.0');
+      if (rootMsg != null && rootMsg.pdu.varbinds.isNotEmpty) {
+        final parsed = parseBridgeId(rootMsg.pdu.varbinds.first.value.toString());
+        if (parsed != null) {
+          stpDesignatedRootId = parsed.formattedId;
+          stpDesignatedRootMac = parsed.mac;
         }
-      } catch (_) {}
+      }
+
+      final rootCostMsg = await _safeGet(session, '1.3.6.1.2.1.17.2.6.0');
+      if (rootCostMsg != null && rootCostMsg.pdu.varbinds.isNotEmpty) {
+        stpRootCost = int.tryParse(rootCostMsg.pdu.varbinds.first.value.toString());
+      }
+
+      final rootPortMsg = await _safeGet(session, '1.3.6.1.2.1.17.2.7.0');
+      if (rootPortMsg != null && rootPortMsg.pdu.varbinds.isNotEmpty) {
+        stpRootPort = int.tryParse(rootPortMsg.pdu.varbinds.first.value.toString());
+      }
+
+      // dot1dStpPortState (1.3.6.1.2.1.17.2.15.1.3)
+      await _safeWalk(session, '1.3.6.1.2.1.17.2.15.1.3', (oidStr, vb) {
+        final pNum = int.tryParse(oidStr.split('.').last);
+        final code = int.tryParse(vb.value.toString());
+        if (pNum != null && code != null) {
+          stpPortStates[pNum] = StpPortState.fromCode(code);
+        }
+      });
+
+      // dot1dStpPortDesignatedBridge (1.3.6.1.2.1.17.2.15.1.8)
+      await _safeWalk(session, '1.3.6.1.2.1.17.2.15.1.8', (oidStr, vb) {
+        final pNum = int.tryParse(oidStr.split('.').last);
+        final parsed = parseBridgeId(vb.value.toString());
+        if (pNum != null && parsed != null) {
+          stpPortDesignatedBridges[pNum] = parsed.formattedId;
+        }
+      });
+
+      // 7. IGMP Snooping & Querier MIBs (MGMD-STD-MIB + Cisco fallback)
+      final snoopingStatusMsg = await _safeGet(session, '1.3.6.1.4.1.9.9.263.1.1.1.1.1');
+      if (snoopingStatusMsg != null &&
+          snoopingStatusMsg.pdu.varbinds.isNotEmpty &&
+          _isReadableVarbind(snoopingStatusMsg.pdu.varbinds.first)) {
+        igmpSnoopingEnabled = snoopingStatusMsg.pdu.varbinds.first.value.toString().trim() == '1';
+      } else {
+        final cbsMsg = await _safeGet(session, '1.3.6.1.4.1.9.6.1.101.55.1.1.0');
+        if (cbsMsg != null &&
+            cbsMsg.pdu.varbinds.isNotEmpty &&
+            _isReadableVarbind(cbsMsg.pdu.varbinds.first)) {
+          igmpSnoopingEnabled = cbsMsg.pdu.varbinds.first.value.toString().trim() == '1';
+        }
+      }
+
+      await _safeWalk(session, '1.3.6.1.2.1.85.1.1.1.9', (oidStr, vb) {
+        final ifIdx = int.tryParse(oidStr.split('.').last) ?? 1;
+        final querierIp = vb.value?.toString().trim() ?? '';
+        if (querierIp.isNotEmpty && querierIp != '0.0.0.0') {
+          igmpVlans.add(IgmpVlanStatus(
+            vlanId: ifIdx,
+            snoopingEnabled: igmpSnoopingEnabled,
+            activeQuerierIp: querierIp,
+            isLocalSwitchQuerier: querierIp == targetIp,
+          ));
+        }
+      });
 
       if (igmpVlans.isEmpty) {
-        try {
-          final ciscoQuerierStream = session.walk(oid: Oid.fromString('1.3.6.1.4.1.9.9.263.1.1.1.1.3'));
-          await for (final msg in ciscoQuerierStream) {
-            for (final vb in msg.pdu.varbinds) {
-              final vlan = int.tryParse(vb.oid.toString().split('.').last) ?? 1;
-              final querierIp = vb.value.toString().trim();
-              if (querierIp.isNotEmpty && querierIp != '0.0.0.0') {
-                igmpVlans.add(IgmpVlanStatus(
-                  vlanId: vlan,
-                  snoopingEnabled: true,
-                  activeQuerierIp: querierIp,
-                  isLocalSwitchQuerier: querierIp == targetIp,
-                ));
-              }
-            }
+        await _safeWalk(session, '1.3.6.1.4.1.9.9.263.1.1.1.1.3', (oidStr, vb) {
+          final vlan = int.tryParse(oidStr.split('.').last) ?? 1;
+          final querierIp = vb.value?.toString().trim() ?? '';
+          if (querierIp.isNotEmpty && querierIp != '0.0.0.0') {
+            igmpVlans.add(IgmpVlanStatus(
+              vlanId: vlan,
+              snoopingEnabled: true,
+              activeQuerierIp: querierIp,
+              isLocalSwitchQuerier: querierIp == targetIp,
+            ));
           }
-        } catch (_) {}
+        });
       }
 
       // 8. Q-BRIDGE-MIB VLAN Membership & PVIDs (Issue #4)
-      try {
-        final pvidStream = session.walk(oid: Oid.fromString('1.3.6.1.2.1.17.7.1.4.5.1.1'));
-        await for (final msg in pvidStream) {
-          for (final vb in msg.pdu.varbinds) {
-            final bPort = int.tryParse(vb.oid.toString().split('.').last);
-            final pvid = int.tryParse(vb.value.toString());
-            if (bPort != null && pvid != null && pvid > 0) {
-              bridgePortPvid[bPort] = pvid;
-            }
-          }
+      await _safeWalk(session, '1.3.6.1.2.1.17.7.1.4.5.1.1', (oidStr, vb) {
+        final bPort = int.tryParse(oidStr.split('.').last);
+        final pvid = int.tryParse(vb.value.toString());
+        if (bPort != null && pvid != null && pvid > 0) {
+          bridgePortPvid[bPort] = pvid;
         }
-      } catch (_) {}
+      });
 
-      try {
-        final vlanNameStream = session.walk(oid: Oid.fromString('1.3.6.1.2.1.17.7.1.4.3.1.1'));
-        await for (final msg in vlanNameStream) {
-          for (final vb in msg.pdu.varbinds) {
-            final vid = int.tryParse(vb.oid.toString().split('.').last);
-            final name = vb.value.toString().trim();
-            if (vid != null && name.isNotEmpty) {
-              vlanNames[vid] = name;
-            }
-          }
+      await _safeWalk(session, '1.3.6.1.2.1.17.7.1.4.3.1.1', (oidStr, vb) {
+        final vid = int.tryParse(oidStr.split('.').last);
+        final name = vb.value?.toString().trim() ?? '';
+        if (vid != null && name.isNotEmpty) {
+          vlanNames[vid] = name;
         }
-      } catch (_) {}
+      });
 
-      try {
-        final egressStream = session.walk(oid: Oid.fromString('1.3.6.1.2.1.17.7.1.4.2.1.4'));
-        await for (final msg in egressStream) {
-          for (final vb in msg.pdu.varbinds) {
-            final vid = int.tryParse(vb.oid.toString().split('.').last);
-            final bytes = extractSnmpOctetBytes(vb.value);
-            if (vid != null && bytes.isNotEmpty) {
-              vlanEgressPorts
-                  .putIfAbsent(vid, () => <int>{})
-                  .addAll(decodePortListBitmask(bytes));
-            }
-          }
+      await _safeWalk(session, '1.3.6.1.2.1.17.7.1.4.2.1.4', (oidStr, vb) {
+        final vid = int.tryParse(oidStr.split('.').last);
+        final bytes = extractSnmpOctetBytes(vb.value);
+        if (vid != null && bytes.isNotEmpty) {
+          vlanEgressPorts
+              .putIfAbsent(vid, () => <int>{})
+              .addAll(decodePortListBitmask(bytes));
         }
-      } catch (_) {}
+      });
 
-      try {
-        final untaggedStream = session.walk(oid: Oid.fromString('1.3.6.1.2.1.17.7.1.4.2.1.5'));
-        await for (final msg in untaggedStream) {
-          for (final vb in msg.pdu.varbinds) {
-            final vid = int.tryParse(vb.oid.toString().split('.').last);
-            final bytes = extractSnmpOctetBytes(vb.value);
-            if (vid != null && bytes.isNotEmpty) {
-              vlanUntaggedPorts
-                  .putIfAbsent(vid, () => <int>{})
-                  .addAll(decodePortListBitmask(bytes));
-            }
-          }
+      await _safeWalk(session, '1.3.6.1.2.1.17.7.1.4.2.1.5', (oidStr, vb) {
+        final vid = int.tryParse(oidStr.split('.').last);
+        final bytes = extractSnmpOctetBytes(vb.value);
+        if (vid != null && bytes.isNotEmpty) {
+          vlanUntaggedPorts
+              .putIfAbsent(vid, () => <int>{})
+              .addAll(decodePortListBitmask(bytes));
         }
-      } catch (_) {}
+      });
 
       // 9. IF-MIB & EtherLike-MIB Speed, Duplex & Errors (Issue #5)
-      try {
-        final speedStream = session.walk(oid: Oid.fromString('1.3.6.1.2.1.31.1.1.1.15'));
-        await for (final msg in speedStream) {
-          for (final vb in msg.pdu.varbinds) {
-            final ifIdx = int.tryParse(vb.oid.toString().split('.').last);
-            final speed = int.tryParse(vb.value.toString());
-            if (ifIdx != null && speed != null) {
-              ifHighSpeedMbps[ifIdx] = speed;
-            }
-          }
+      await _safeWalk(session, '1.3.6.1.2.1.31.1.1.1.15', (oidStr, vb) {
+        final ifIdx = int.tryParse(oidStr.split('.').last);
+        final speed = int.tryParse(vb.value.toString());
+        if (ifIdx != null && speed != null) {
+          ifHighSpeedMbps[ifIdx] = speed;
         }
-      } catch (_) {}
+      });
 
-      try {
-        final operStream = session.walk(oid: Oid.fromString('1.3.6.1.2.1.2.2.1.8'));
-        await for (final msg in operStream) {
-          for (final vb in msg.pdu.varbinds) {
-            final ifIdx = int.tryParse(vb.oid.toString().split('.').last);
-            final status = int.tryParse(vb.value.toString());
-            if (ifIdx != null && status != null) {
-              ifOperUp[ifIdx] = status == 1;
-            }
-          }
+      await _safeWalk(session, '1.3.6.1.2.1.2.2.1.8', (oidStr, vb) {
+        final ifIdx = int.tryParse(oidStr.split('.').last);
+        final status = int.tryParse(vb.value.toString());
+        if (ifIdx != null && status != null) {
+          ifOperUp[ifIdx] = status == 1;
         }
-      } catch (_) {}
+      });
 
-      try {
-        final inDiscardsStream = session.walk(oid: Oid.fromString('1.3.6.1.2.1.2.2.1.13'));
-        await for (final msg in inDiscardsStream) {
-          for (final vb in msg.pdu.varbinds) {
-            final ifIdx = int.tryParse(vb.oid.toString().split('.').last);
-            final val = int.tryParse(vb.value.toString());
-            if (ifIdx != null && val != null) ifInDiscards[ifIdx] = val;
-          }
-        }
-      } catch (_) {}
+      await _safeWalk(session, '1.3.6.1.2.1.2.2.1.13', (oidStr, vb) {
+        final ifIdx = int.tryParse(oidStr.split('.').last);
+        final val = int.tryParse(vb.value.toString());
+        if (ifIdx != null && val != null) ifInDiscards[ifIdx] = val;
+      });
 
-      try {
-        final inErrStream = session.walk(oid: Oid.fromString('1.3.6.1.2.1.2.2.1.14'));
-        await for (final msg in inErrStream) {
-          for (final vb in msg.pdu.varbinds) {
-            final ifIdx = int.tryParse(vb.oid.toString().split('.').last);
-            final val = int.tryParse(vb.value.toString());
-            if (ifIdx != null && val != null) ifInErrors[ifIdx] = val;
-          }
-        }
-      } catch (_) {}
+      await _safeWalk(session, '1.3.6.1.2.1.2.2.1.14', (oidStr, vb) {
+        final ifIdx = int.tryParse(oidStr.split('.').last);
+        final val = int.tryParse(vb.value.toString());
+        if (ifIdx != null && val != null) ifInErrors[ifIdx] = val;
+      });
 
-      try {
-        final outDiscardsStream = session.walk(oid: Oid.fromString('1.3.6.1.2.1.2.2.1.19'));
-        await for (final msg in outDiscardsStream) {
-          for (final vb in msg.pdu.varbinds) {
-            final ifIdx = int.tryParse(vb.oid.toString().split('.').last);
-            final val = int.tryParse(vb.value.toString());
-            if (ifIdx != null && val != null) ifOutDiscards[ifIdx] = val;
-          }
-        }
-      } catch (_) {}
+      await _safeWalk(session, '1.3.6.1.2.1.2.2.1.19', (oidStr, vb) {
+        final ifIdx = int.tryParse(oidStr.split('.').last);
+        final val = int.tryParse(vb.value.toString());
+        if (ifIdx != null && val != null) ifOutDiscards[ifIdx] = val;
+      });
 
-      try {
-        final outErrStream = session.walk(oid: Oid.fromString('1.3.6.1.2.1.2.2.1.20'));
-        await for (final msg in outErrStream) {
-          for (final vb in msg.pdu.varbinds) {
-            final ifIdx = int.tryParse(vb.oid.toString().split('.').last);
-            final val = int.tryParse(vb.value.toString());
-            if (ifIdx != null && val != null) ifOutErrors[ifIdx] = val;
-          }
-        }
-      } catch (_) {}
+      await _safeWalk(session, '1.3.6.1.2.1.2.2.1.20', (oidStr, vb) {
+        final ifIdx = int.tryParse(oidStr.split('.').last);
+        final val = int.tryParse(vb.value.toString());
+        if (ifIdx != null && val != null) ifOutErrors[ifIdx] = val;
+      });
 
-      try {
-        final duplexStream = session.walk(oid: Oid.fromString('1.3.6.1.2.1.10.7.2.1.19'));
-        await for (final msg in duplexStream) {
-          for (final vb in msg.pdu.varbinds) {
-            final ifIdx = int.tryParse(vb.oid.toString().split('.').last);
-            final code = int.tryParse(vb.value.toString());
-            if (ifIdx != null && code != null) {
-              ifDuplexModes[ifIdx] = DuplexMode.fromCode(code);
-            }
-          }
+      await _safeWalk(session, '1.3.6.1.2.1.10.7.2.1.19', (oidStr, vb) {
+        final ifIdx = int.tryParse(oidStr.split('.').last);
+        final code = int.tryParse(vb.value.toString());
+        if (ifIdx != null && code != null) {
+          ifDuplexModes[ifIdx] = DuplexMode.fromCode(code);
         }
-      } catch (_) {}
+      });
 
       // 10. POWER-ETHERNET-MIB Chassis & Per-Port PoE Telemetry (Issue #7)
-      try {
-        final budgetStream = session.walk(oid: Oid.fromString('1.3.6.1.2.1.105.1.3.1.1.2'));
-        await for (final msg in budgetStream) {
-          for (final vb in msg.pdu.varbinds) {
-            final watts = int.tryParse(vb.value.toString());
-            if (watts != null && watts > 0) poeTotalBudgetWatts += watts;
-          }
-        }
-      } catch (_) {}
+      await _safeWalk(session, '1.3.6.1.2.1.105.1.3.1.1.2', (_, vb) {
+        final watts = int.tryParse(vb.value.toString());
+        if (watts != null && watts > 0) poeTotalBudgetWatts += watts;
+      });
 
-      try {
-        final drawStream = session.walk(oid: Oid.fromString('1.3.6.1.2.1.105.1.3.1.1.4'));
-        await for (final msg in drawStream) {
-          for (final vb in msg.pdu.varbinds) {
-            final watts = int.tryParse(vb.value.toString());
-            if (watts != null && watts >= 0) poeConsumedWatts += watts;
-          }
-        }
-      } catch (_) {}
+      await _safeWalk(session, '1.3.6.1.2.1.105.1.3.1.1.4', (_, vb) {
+        final watts = int.tryParse(vb.value.toString());
+        if (watts != null && watts >= 0) poeConsumedWatts += watts;
+      });
 
-      try {
-        final portStateStream = session.walk(oid: Oid.fromString('1.3.6.1.2.1.105.1.1.1.6'));
-        await for (final msg in portStateStream) {
-          for (final vb in msg.pdu.varbinds) {
-            final pNum = int.tryParse(vb.oid.toString().split('.').last);
-            final code = int.tryParse(vb.value.toString());
-            if (pNum != null && code != null) {
-              poePortStates[pNum] = PoePortState.fromCode(code);
-            }
-          }
+      await _safeWalk(session, '1.3.6.1.2.1.105.1.1.1.6', (oidStr, vb) {
+        final pNum = int.tryParse(oidStr.split('.').last);
+        final code = int.tryParse(vb.value.toString());
+        if (pNum != null && code != null) {
+          poePortStates[pNum] = PoePortState.fromCode(code);
         }
-      } catch (_) {}
+      });
 
-      try {
-        final portClassStream = session.walk(oid: Oid.fromString('1.3.6.1.2.1.105.1.1.1.10'));
-        await for (final msg in portClassStream) {
-          for (final vb in msg.pdu.varbinds) {
-            final pNum = int.tryParse(vb.oid.toString().split('.').last);
-            final classCode = int.tryParse(vb.value.toString());
-            if (pNum != null && classCode != null) {
-              poePortClasses[pNum] = 'Class ${classCode - 1}';
-            }
-          }
+      await _safeWalk(session, '1.3.6.1.2.1.105.1.1.1.10', (oidStr, vb) {
+        final pNum = int.tryParse(oidStr.split('.').last);
+        final classCode = int.tryParse(vb.value.toString());
+        if (pNum != null && classCode != null) {
+          poePortClasses[pNum] = 'Class ${classCode - 1}';
         }
-      } catch (_) {}
+      });
 
-      try {
-        final ciscoMwStream = session.walk(oid: Oid.fromString('1.3.6.1.4.1.9.9.402.1.2.1.9'));
-        await for (final msg in ciscoMwStream) {
-          for (final vb in msg.pdu.varbinds) {
-            final pNum = int.tryParse(vb.oid.toString().split('.').last);
-            final mw = int.tryParse(vb.value.toString());
-            if (pNum != null && mw != null && mw >= 0) {
-              poePortWatts[pNum] = mw / 1000.0;
-            }
-          }
+      await _safeWalk(session, '1.3.6.1.4.1.9.9.402.1.2.1.9', (oidStr, vb) {
+        final pNum = int.tryParse(oidStr.split('.').last);
+        final mw = int.tryParse(vb.value.toString());
+        if (pNum != null && mw != null && mw >= 0) {
+          poePortWatts[pNum] = mw / 1000.0;
         }
-      } catch (_) {}
-
+      });
     } finally {
-      session.close();
+      if (!sessionClosed) {
+        session.close();
+      }
     }
 
     final stpPorts = <StpPortInfo>[];

@@ -164,4 +164,38 @@ void main() {
       expect(table.containsKey('192.168.1.255'), isFalse);
     });
   });
+
+  group('TracerouteService Args Tests (P8)', () {
+    test('Includes -s <sourceIp> on same-subnet traceroute and omits when off-subnet or loopback', () {
+      final sameSubnet = TracerouteService.buildTraceArgs(
+        binary: 'traceroute',
+        targetIp: '192.168.1.50',
+        maxHops: 15,
+        waitSec: 1,
+        timeoutMs: 1000,
+        sourceIp: '192.168.1.10',
+      );
+      expect(sameSubnet.take(2).toList(), ['-s', '192.168.1.10']);
+
+      final offSubnet = TracerouteService.buildTraceArgs(
+        binary: 'traceroute',
+        targetIp: '8.8.8.8',
+        maxHops: 15,
+        waitSec: 1,
+        timeoutMs: 1000,
+        sourceIp: '192.168.1.10',
+      );
+      expect(offSubnet.contains('-s'), isFalse);
+
+      final loopback = TracerouteService.buildTraceArgs(
+        binary: 'traceroute',
+        targetIp: '127.0.0.2',
+        maxHops: 15,
+        waitSec: 1,
+        timeoutMs: 1000,
+        sourceIp: '127.0.0.1',
+      );
+      expect(loopback.contains('-s'), isFalse);
+    });
+  });
 }

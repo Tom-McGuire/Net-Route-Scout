@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:network_suite_shared/network_suite_shared.dart';
 import 'package:net_route_scout/core/app_theme.dart';
+import 'package:net_route_scout/data/services/shared_device_service.dart';
 import 'package:net_route_scout/domain/models/network_node.dart';
 
 class EditDeviceDialog extends StatefulWidget {
@@ -64,9 +65,7 @@ class _EditDeviceDialogState extends State<EditDeviceDialog> {
     _selectedCategory = widget.initialCategory ?? n?.deviceCategoryKey;
 
     try {
-      if (SharedDeviceDatabase.instance.isInitialized) {
-        _categories = SharedDeviceDatabase.instance.getUnifiedCategories();
-      }
+      _categories = SharedDeviceService().getCategories();
     } catch (_) {}
 
     // Safeguard against label vs key mismatch or missing category keys

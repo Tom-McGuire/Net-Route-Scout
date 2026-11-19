@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:material_ui/material_ui.dart';
 import 'package:network_suite_shared/network_suite_shared.dart';
+import '../../core/constants.dart';
 
 class SharedDeviceResolvedInfo {
   final SharedDevice device;
@@ -73,14 +74,6 @@ class SharedDeviceService {
     );
   }
 
-  /// Updates or inserts a device friendly name in `shared_devices.db`.
-  void updateDeviceName(String rawMac, String newName) {
-    if (!SharedDeviceDatabase.instance.isInitialized) return;
-    final normalized = SharedDevice.normalizeMac(rawMac);
-    SharedDeviceDatabase.instance.updateDeviceName(normalized, newName.trim());
-    _changeNotifier.add(null);
-  }
-
   /// Updates full metadata (name, device type, vendor, notes).
   void updateDeviceDetails(
     String rawMac, {
@@ -108,7 +101,7 @@ class SharedDeviceService {
     String? vendor,
     String? deviceType,
     String? notes,
-    String sourceApp = 'net-route-scout',
+    String sourceApp = AppConstants.sourceAppName,
   }) {
     if (!SharedDeviceDatabase.instance.isInitialized) return;
     final normalized = SharedDevice.normalizeMac(rawMac);

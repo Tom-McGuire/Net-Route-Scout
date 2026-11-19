@@ -127,9 +127,9 @@ void main() {
       expect(repo.nodes.containsKey('10.0.2.55'), isTrue);
       expect(repo.nodes.containsKey('10.0.3.50'), isTrue);
 
-      // Check anonymous hop handling
-      expect(repo.nodes.containsKey('Anon-Hop-Depth-2'), isTrue);
-      final anon = repo.nodes['Anon-Hop-Depth-2']!;
+      // Check anonymous hop handling (P7 standard contextual format)
+      expect(repo.nodes.containsKey('anon:192.168.1.1:2'), isTrue);
+      final anon = repo.nodes['anon:192.168.1.1:2']!;
       expect(anon.isUnresponsive, isTrue);
     });
 

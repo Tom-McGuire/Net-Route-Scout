@@ -11,7 +11,7 @@ class AlertBanner extends StatelessWidget {
     final vm = context.watch<TopologyViewModel>();
     final progress = vm.scanProgress;
     final statusMsg = vm.statusBannerText;
-    final l2Alerts = vm.l2DiagnosticAlerts;
+    final l2Alerts = vm.visibleL2DiagnosticAlerts;
 
     if (!progress.isScanning && statusMsg == null && l2Alerts.isEmpty) {
       return const SizedBox.shrink();
@@ -127,8 +127,9 @@ class AlertBanner extends StatelessWidget {
             ),
           ),
           IconButton(
-            onPressed: () => vm.clearSelection(),
+            onPressed: vm.dismissAlertBanner,
             icon: const Icon(Icons.close, size: 14, color: Colors.white54),
+            tooltip: 'Dismiss alert',
             splashRadius: 14,
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(),

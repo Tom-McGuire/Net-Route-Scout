@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import '../../core/constants.dart';
 import '../../domain/models/cancellation_token.dart';
 import '../../domain/models/trace_hop.dart';
 import '../../domain/models/trace_result.dart';
+import 'icmp_service.dart';
 
 class TracerouteService {
   final Set<Process> _activeProcesses = {};
@@ -45,11 +47,45 @@ class TracerouteService {
     return 'traceroute';
   }
 
+  /// Builds CLI arguments for the given traceroute [binary].
+  static List<String> buildTraceArgs({
+    required String binary,
+    required String targetIp,
+    required int maxHops,
+    required int waitSec,
+    required int timeoutMs,
+    String? sourceIp,
+  }) {
+    if (binary == 'tracert') {
+      // Windows tracert -w takes milliseconds. Windows routes through the adapter matching the subnet.
+      return ['-d', '-h', '$maxHops', '-w', '$timeoutMs', targetIp];
+    }
+    if (binary == 'tracepath') {
+      return ['-n', '-m', '$maxHops', targetIp];
+    }
+    // Linux / macOS traceroute -w takes seconds.
+    final useSource = sourceIp != null &&
+        sourceIp.isNotEmpty &&
+        !sourceIp.startsWith('127.') &&
+        IcmpService.isSameSubnet(sourceIp, targetIp);
+    return [
+      if (useSource) ...['-s', sourceIp],
+      '-n',
+      '-m',
+      '$maxHops',
+      '-w',
+      '$waitSec',
+      '-q',
+      '1',
+      targetIp,
+    ];
+  }
+
   /// Traces route to a single target IP using the native OS CLI tool.
   Future<TraceResult> traceTarget(
     String targetIp, {
     int maxHops = 15,
-    int timeoutMs = 1000,
+    int timeoutMs = AppConstants.defaultTimeoutMs,
     String? sourceIp,
     CancellationToken? cancelToken,
     void Function(TraceHop hop)? onHopDiscovered,
@@ -64,28 +100,25 @@ class TracerouteService {
       );
     }
 
-    String executable;
-    List<String> args;
+    final String executable;
     final waitSec = (timeoutMs / 1000).ceil().clamp(1, 10);
 
     if (Platform.isWindows) {
       executable = 'tracert';
-      // Windows tracert -w takes milliseconds. Windows routes through the adapter matching the subnet.
-      args = ['-d', '-h', '$maxHops', '-w', '$timeoutMs', targetIp];
     } else if (Platform.isMacOS) {
       executable = 'traceroute';
-      // macOS traceroute -w takes seconds.
-      args = ['-n', '-m', '$maxHops', '-w', '$waitSec', '-q', '1', targetIp];
     } else {
-      // Linux
-      final bin = await _resolveLinuxTracerouteBin();
-      executable = bin;
-      if (bin == 'tracepath') {
-        args = ['-n', '-m', '$maxHops', targetIp];
-      } else {
-        args = ['-n', '-m', '$maxHops', '-w', '$waitSec', '-q', '1', targetIp];
-      }
+      executable = await _resolveLinuxTracerouteBin();
     }
+
+    final args = buildTraceArgs(
+      binary: executable,
+      targetIp: targetIp,
+      maxHops: maxHops,
+      waitSec: waitSec,
+      timeoutMs: timeoutMs,
+      sourceIp: sourceIp,
+    );
 
     Process? proc;
     Timer? timeoutTimer;
@@ -324,7 +357,7 @@ class TracerouteService {
     List<String> targetIps, {
     int concurrency = 4,
     int maxHops = 15,
-    int timeoutMs = 1000,
+    int timeoutMs = AppConstants.defaultTimeoutMs,
     String? sourceIp,
     CancellationToken? cancelToken,
     void Function(int completed, int total, String currentIp, TraceResult result)? onTargetCompleted,

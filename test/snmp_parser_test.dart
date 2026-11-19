@@ -37,27 +37,6 @@ void main() {
       expect(json['remote_mgmt_ip'], '192.168.1.2');
     });
 
-    test('LldpDiscoveryResult handles fields and JSON output', () {
-      final lldp = LldpDiscoveryResult(
-        chassisId: '70:69:79:01:02:03',
-        sysName: 'USW-Pro-24-PoE',
-        portId: 'Port 8',
-        portDescr: 'Workstation Link',
-        mgmtAddress: '192.168.1.5',
-        vlanId: 1,
-        capabilities: ['Bridge', 'Router'],
-      );
-
-      final json = lldp.toJson();
-      expect(json['chassis_id'], '70:69:79:01:02:03');
-      expect(json['sys_name'], 'USW-Pro-24-PoE');
-      expect(json['port_id'], 'Port 8');
-      expect(json['port_descr'], 'Workstation Link');
-      expect(json['mgmt_address'], '192.168.1.5');
-      expect(json['vlan_id'], 1);
-      expect((json['capabilities'] as List).contains('Bridge'), true);
-    });
-
     test('SwitchDiscoveryResult aggregates ports and neighbors cleanly', () {
       final result = SwitchDiscoveryResult(
         switchIp: '192.168.1.2',

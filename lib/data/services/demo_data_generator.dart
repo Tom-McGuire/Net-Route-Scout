@@ -1,5 +1,12 @@
+import '../../domain/models/igmp_vlan_status.dart';
+import '../../domain/models/interface_health_stats.dart';
+import '../../domain/models/network_edge.dart';
+import '../../domain/models/port_vlan_config.dart';
+import '../../domain/models/stp_port_info.dart';
+import '../../domain/models/switch_poe_status.dart';
 import '../../domain/models/trace_hop.dart';
 import '../../domain/models/trace_result.dart';
+import '../repositories/topology_repository.dart';
 
 class DemoDataGenerator {
   static const String localHostIp = '192.168.1.105';
@@ -93,7 +100,7 @@ class DemoDataGenerator {
           TraceHop(depth: 3, ip: '10.0.2.215', rttMs: 7.2),
         ],
       ),
-      // Target 8: Public Web Gateway (via 192.168.1.1 -> Anon-Hop-Depth-2 -> 10.0.3.50)
+      // Target 8: Public Web Gateway (via 192.168.1.1 -> anon:192.168.1.1:2 -> 10.0.3.50)
       TraceResult(
         targetIp: '10.0.3.50',
         isReachable: true,
@@ -101,11 +108,11 @@ class DemoDataGenerator {
         completedAt: now,
         hops: const [
           TraceHop(depth: 1, ip: '192.168.1.1', rttMs: 0.8),
-          TraceHop(depth: 2, ip: 'Anon-Hop-Depth-2', isTimeout: true),
+          TraceHop(depth: 2, ip: 'anon:192.168.1.1:2', isTimeout: true),
           TraceHop(depth: 3, ip: '10.0.3.50', rttMs: 14.5),
         ],
       ),
-      // Target 9: Corporate VPN Concentrator (via 192.168.1.1 -> Anon-Hop-Depth-2 -> 10.0.3.88)
+      // Target 9: Corporate VPN Concentrator (via 192.168.1.1 -> anon:192.168.1.1:2 -> 10.0.3.88)
       TraceResult(
         targetIp: '10.0.3.88',
         isReachable: true,
@@ -113,7 +120,7 @@ class DemoDataGenerator {
         completedAt: now,
         hops: const [
           TraceHop(depth: 1, ip: '192.168.1.1', rttMs: 0.9),
-          TraceHop(depth: 2, ip: 'Anon-Hop-Depth-2', isTimeout: true),
+          TraceHop(depth: 2, ip: 'anon:192.168.1.1:2', isTimeout: true),
           TraceHop(depth: 3, ip: '10.0.3.88', rttMs: 16.2),
         ],
       ),
@@ -207,4 +214,196 @@ class DemoDataGenerator {
       'notes': 'Cisco ASA 5525-X Remote Access Headend',
     },
   };
+
+  /// Populates [repository] with the full enterprise demo topology (traces,
+  /// catalog metadata, switches/links, STP, IGMP, VLAN, Interface Health, PoE,
+  /// and ring split correlation) and returns the number of ingested traces.
+  static int populateDemoRepository(TopologyRepository repository) {
+    repository.clear();
+    repository.setLocalHost(localHostIp, gatewayIp: gatewayIp);
+
+    // Ingest all demo traces
+    final demoTraces = generateDemoTraces();
+    for (final trace in demoTraces) {
+      repository.ingestTraceResult(trace);
+    }
+
+    // Populate local node metadata for demo presentation (isolated from SharedDeviceDatabase)
+    for (final entry in demoDeviceCatalog.entries) {
+      final ip = entry.key;
+      final data = entry.value;
+      repository.updateNodeSharedMetadata(
+        ip,
+        name: data['name']!,
+        category: data['type']!,
+        vendor: data['vendor']!,
+        notes: data['notes']!,
+        macAddress: data['mac']!,
+      );
+    }
+
+    // Configure demo switch hierarchy (Core/Distribution switch -> Access switch -> Endpoints)
+    repository.defineNodeAsSwitch('10.0.2.1', isSwitch: true, name: 'Engineering Distribution Switch');
+    repository.connectNodeToSwitch('10.0.2.20', '10.0.2.1', portLabel: 'Port 1 (DevOps)');
+    repository.connectNodeToSwitch('10.0.2.55', '10.0.2.1', portLabel: 'Port 10 (10GbE NAS)');
+
+    final accessSwitch = repository.addStandaloneSwitch(
+      name: 'Floor 2 Access Switch',
+      ip: '10.0.2.2',
+      model: 'Aruba 2930F 24G PoE+',
+      upstreamNodeId: '10.0.2.1',
+    );
+    repository.connectNodeToSwitch(accessSwitch.id, '10.0.2.1', portLabel: 'Uplink 1/24');
+    repository.connectNodeToSwitch('10.0.2.101', accessSwitch.id, portLabel: 'Port 5 (MacBook)');
+    repository.connectNodeToSwitch('10.0.2.215', accessSwitch.id, portLabel: 'Port 12 (Conf TV)');
+
+    final ringEdgeSwitch = repository.addStandaloneSwitch(
+      name: 'Stage Left AV Switch',
+      ip: '10.0.2.3',
+      model: 'Luminex GigaCore 16RFO',
+      upstreamNodeId: '10.0.2.1',
+    );
+    repository.connectNodeToSwitch(ringEdgeSwitch.id, '10.0.2.1', portLabel: 'Fiber Trunk 1/26');
+
+    // Enrich Demo Switches with STP Root Bridge, Ring Split, IGMP Querier, VLAN, Health & PoE telemetry
+    final demoSampleTime = DateTime.now();
+    final distNode = repository.nodes['10.0.2.1'];
+    if (distNode != null) {
+      repository.updateNodeDirect(distNode.copyWith(
+        isStpRootBridge: true,
+        stpPriority: 4096,
+        stpBridgeId: '4096 / AA:BB:CC:11:22:01',
+        stpDesignatedRootId: '4096 / AA:BB:CC:11:22:01',
+        stpRootCost: 0,
+        isIgmpQuerier: true,
+        igmpQuerierVersion: 'IGMPv3',
+        igmpSnoopingEnabled: true,
+        igmpVlans: const [
+          IgmpVlanStatus(
+            vlanId: 1,
+            vlanName: 'Default / AV Control',
+            snoopingEnabled: true,
+            localQuerierEnabled: true,
+            activeQuerierIp: '10.0.2.1',
+            igmpVersion: 3,
+            isLocalSwitchQuerier: true,
+          ),
+        ],
+        stpPorts: const [
+          StpPortInfo(bridgePort: 1, ifIndex: 1, interfaceName: 'Gi1/0/1', state: StpPortState.forwarding, role: StpPortRole.designated),
+          StpPortInfo(bridgePort: 24, ifIndex: 24, interfaceName: 'Gi1/0/24', state: StpPortState.forwarding, role: StpPortRole.designated),
+          StpPortInfo(bridgePort: 26, ifIndex: 26, interfaceName: 'Te1/0/26', state: StpPortState.forwarding, role: StpPortRole.designated),
+        ],
+        vlanNames: const {1: 'MGMT', 10: 'CONTROL', 20: 'DANTE_AUDIO'},
+        portVlans: const [
+          PortVlanConfig(bridgePort: 24, ifIndex: 24, interfaceName: 'Uplink 1/24', nativePvid: 1, allowedVlans: {1, 10, 20}, untaggedVlans: {1}),
+          PortVlanConfig(bridgePort: 26, ifIndex: 26, interfaceName: 'Fiber Trunk 1/26', nativePvid: 1, allowedVlans: {1, 10, 20}, untaggedVlans: {1}),
+        ],
+        interfaceHealth: [
+          InterfaceHealthStats(ifIndex: 24, interfaceName: 'Uplink 1/24', speedMbps: 1000, duplex: DuplexMode.fullDuplex, sampledAt: demoSampleTime),
+          InterfaceHealthStats(ifIndex: 26, interfaceName: 'Fiber Trunk 1/26', speedMbps: 10000, duplex: DuplexMode.fullDuplex, sampledAt: demoSampleTime),
+        ],
+      ));
+    }
+
+    final accessNode = repository.nodes[accessSwitch.id];
+    if (accessNode != null) {
+      repository.updateNodeDirect(accessNode.copyWith(
+        stpPriority: 32768,
+        stpBridgeId: '32768 / AA:BB:CC:11:22:02',
+        stpDesignatedRootId: '4096 / AA:BB:CC:11:22:01',
+        stpRootCost: 4,
+        igmpSnoopingEnabled: true,
+        igmpVlans: const [
+          IgmpVlanStatus(
+            vlanId: 1,
+            vlanName: 'Default / AV Control',
+            snoopingEnabled: true,
+            activeQuerierIp: '10.0.2.1',
+            igmpVersion: 3,
+          ),
+        ],
+        stpPorts: const [
+          StpPortInfo(bridgePort: 24, ifIndex: 24, interfaceName: 'Uplink 1/24', state: StpPortState.forwarding, role: StpPortRole.root),
+          StpPortInfo(bridgePort: 25, ifIndex: 25, interfaceName: 'Ring 1/25', state: StpPortState.blocking, role: StpPortRole.alternate),
+        ],
+        vlanNames: const {1: 'MGMT', 10: 'CONTROL', 20: 'DANTE_AUDIO'},
+        portVlans: const [
+          PortVlanConfig(bridgePort: 24, ifIndex: 24, interfaceName: 'Uplink 1/24', nativePvid: 1, allowedVlans: {1, 10, 20}, untaggedVlans: {1}),
+          PortVlanConfig(bridgePort: 25, ifIndex: 25, interfaceName: 'Ring 1/25', nativePvid: 1, allowedVlans: {1, 10}, untaggedVlans: {1}),
+        ],
+        interfaceHealth: [
+          InterfaceHealthStats(ifIndex: 24, interfaceName: 'Uplink 1/24', speedMbps: 1000, duplex: DuplexMode.fullDuplex, sampledAt: demoSampleTime),
+          InterfaceHealthStats(ifIndex: 25, interfaceName: 'Ring 1/25', speedMbps: 100, duplex: DuplexMode.fullDuplex, inErrors: 14, inErrorsDelta: 3, sampledAt: demoSampleTime),
+        ],
+        poeStatus: const SwitchPoeStatus(
+          totalBudgetWatts: 195,
+          consumedWatts: 162,
+          ports: [
+            PoePortDetail(portIndex: 5, interfaceName: 'Port 5 (MacBook)', state: PoePortState.searching),
+            PoePortDetail(portIndex: 12, interfaceName: 'Port 12 (Conf TV)', state: PoePortState.deliveringPower, powerClass: 'Class 4', drawWatts: 24.5),
+          ],
+        ),
+      ));
+    }
+
+    final ringNode = repository.nodes[ringEdgeSwitch.id];
+    if (ringNode != null) {
+      repository.updateNodeDirect(ringNode.copyWith(
+        stpPriority: 32768,
+        stpBridgeId: '32768 / AA:BB:CC:11:22:03',
+        stpDesignatedRootId: '4096 / AA:BB:CC:11:22:01',
+        stpRootCost: 4,
+        igmpSnoopingEnabled: true,
+        stpPorts: const [
+          StpPortInfo(bridgePort: 26, ifIndex: 26, interfaceName: 'Fiber 1/26', state: StpPortState.forwarding, role: StpPortRole.root),
+        ],
+        vlanNames: const {1: 'MGMT', 10: 'CONTROL'},
+        portVlans: const [
+          // Intentionally prune VLAN 20 on Stage Left switch to demonstrate Issue #4 alert & badge
+          PortVlanConfig(bridgePort: 26, ifIndex: 26, interfaceName: 'Fiber 1/26', nativePvid: 1, allowedVlans: {1, 10}, untaggedVlans: {1}),
+        ],
+        interfaceHealth: [
+          InterfaceHealthStats(ifIndex: 26, interfaceName: 'Fiber 1/26', speedMbps: 10000, duplex: DuplexMode.fullDuplex, sampledAt: demoSampleTime),
+        ],
+        poeStatus: const SwitchPoeStatus(
+          totalBudgetWatts: 150,
+          consumedWatts: 68,
+          ports: [
+            PoePortDetail(portIndex: 1, interfaceName: 'Port 1 (sACN Node)', state: PoePortState.deliveringPower, powerClass: 'Class 3', drawWatts: 12.4),
+          ],
+        ),
+      ));
+    }
+
+    // Populate port names on demo switch-to-switch trunks for VLAN & speed correlation
+    final distToAccess = repository.edges['10.0.2.1->${accessSwitch.id}'];
+    if (distToAccess != null) {
+      repository.updateEdgeDirect(distToAccess.copyWith(
+        sourcePortName: 'Uplink 1/24',
+        targetPortName: 'Uplink 1/24',
+      ));
+    }
+    final distToRing = repository.edges['10.0.2.1->${ringEdgeSwitch.id}'];
+    if (distToRing != null) {
+      repository.updateEdgeDirect(distToRing.copyWith(
+        sourcePortName: 'Fiber Trunk 1/26',
+        targetPortName: 'Fiber 1/26',
+      ));
+    }
+
+    // Add blocked ring split edge between Stage Left AV Switch <-> Floor 2 Access Switch
+    repository.updateEdgeDirect(NetworkEdge(
+      sourceIp: ringEdgeSwitch.id,
+      targetIp: accessSwitch.id,
+      stpState: LinkStpState.blocking,
+      blockingSwitchId: accessSwitch.id,
+      blockingPortName: 'Ring 1/25',
+      sourcePortName: 'Fiber 1/26',
+      targetPortName: 'Ring 1/25',
+    ));
+    repository.correlateStpEdges();
+
+    return demoTraces.length;
+  }
 }

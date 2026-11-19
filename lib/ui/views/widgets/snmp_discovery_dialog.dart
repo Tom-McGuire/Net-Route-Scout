@@ -43,6 +43,7 @@ class _SnmpDiscoveryDialogState extends State<SnmpDiscoveryDialog> {
   @override
   void initState() {
     super.initState();
+    _communityController.text = widget.viewModel.lastSnmpCommunity;
     if (widget.initialNode != null) {
       _ipController.text = widget.initialNode!.ip;
     } else {
@@ -87,6 +88,8 @@ class _SnmpDiscoveryDialogState extends State<SnmpDiscoveryDialog> {
         port: port,
         version: _version,
       );
+
+      widget.viewModel.setLastSnmpCommunity(community);
 
       if (mounted) {
         setState(() {
@@ -142,7 +145,7 @@ class _SnmpDiscoveryDialogState extends State<SnmpDiscoveryDialog> {
       }
     }
 
-    // 3. Connect discovered neighbor switches
+    // 3. Connect discovered neighbor switches without inverting upstream hierarchy
     for (final neighbor in res.neighbors) {
       // Check if neighbor already exists
       final existingNeighbor = widget.viewModel.availableSwitches
@@ -150,10 +153,11 @@ class _SnmpDiscoveryDialogState extends State<SnmpDiscoveryDialog> {
           .firstOrNull;
 
       if (existingNeighbor != null && existingNeighbor.id != switchNode.id) {
-        widget.viewModel.connectNodeToSwitch(
-          existingNeighbor.id,
-          switchNode.id,
-          portLabel: neighbor.localPort,
+        widget.viewModel.linkSwitchNeighbor(
+          switchId: switchNode.id,
+          neighborId: existingNeighbor.id,
+          localPort: neighbor.localPort,
+          remotePort: neighbor.remotePort,
         );
       }
     }

@@ -13,6 +13,17 @@ class InterAppArguments {
     this.autoStart = false,
   });
 
+  String? get effectiveTarget =>
+      (target != null && target!.trim().isNotEmpty)
+          ? target
+          : ((subnet != null && subnet!.trim().isNotEmpty) ? subnet : null);
+
+  bool get hasCommand =>
+      effectiveTarget != null ||
+      adapterIp != null ||
+      adapterName != null ||
+      autoStart;
+
   /// Parses command line arguments (e.g. `--target <ip>`, `--adapter-ip <ip>`, etc.)
   factory InterAppArguments.fromArgs(List<String> args) {
     String? target;

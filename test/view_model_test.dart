@@ -213,9 +213,9 @@ void main() {
     test('Device quick-filter pills and auto-detected toggle', () {
       vm.loadDemoTopology();
 
-      // Default showAutoDetected is false, so autoDetectedUnlabeledNodes must be empty
+      // Default showAutoDetected is false, so visibleUnknownDevices must be empty
       expect(vm.showAutoDetected, isFalse);
-      expect(vm.autoDetectedUnlabeledNodes, isEmpty);
+      expect(vm.visibleUnknownDevices, isEmpty);
 
       // Toggle showAutoDetected to true
       vm.setShowAutoDetected(true);
@@ -288,6 +288,24 @@ void main() {
 
       vm.toggleDeviceVisibility(mac);
       expect(vm.hiddenDeviceMacs.contains(mac), isFalse);
+    });
+
+    test('dismissAlertBanner clears banner without clearing selectedNodeId (P2)', () {
+      vm.loadDemoTopology();
+      expect(vm.visibleL2DiagnosticAlerts, isNotEmpty);
+
+      vm.selectNode('10.0.2.1');
+      expect(vm.selectedNodeId, '10.0.2.1');
+
+      vm.dismissAlertBanner();
+      expect(vm.visibleL2DiagnosticAlerts, isEmpty);
+      expect(vm.selectedNodeId, '10.0.2.1');
+    });
+
+    test('setLastSnmpCommunity updates community string cleanly (P6)', () {
+      expect(vm.lastSnmpCommunity, 'public');
+      vm.setLastSnmpCommunity('av-read-only');
+      expect(vm.lastSnmpCommunity, 'av-read-only');
     });
   });
 }

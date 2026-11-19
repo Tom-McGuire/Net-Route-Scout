@@ -52,36 +52,6 @@ class SwitchNeighborLink {
   };
 }
 
-class LldpDiscoveryResult {
-  final String chassisId;
-  final String sysName;
-  final String portId;
-  final String? portDescr;
-  final String? mgmtAddress;
-  final int? vlanId;
-  final List<String> capabilities;
-
-  LldpDiscoveryResult({
-    required this.chassisId,
-    required this.sysName,
-    required this.portId,
-    this.portDescr,
-    this.mgmtAddress,
-    this.vlanId,
-    this.capabilities = const [],
-  });
-
-  Map<String, dynamic> toJson() => {
-    'chassis_id': chassisId,
-    'sys_name': sysName,
-    'port_id': portId,
-    'port_descr': portDescr,
-    'mgmt_address': mgmtAddress,
-    'vlan_id': vlanId,
-    'capabilities': capabilities,
-  };
-}
-
 class SwitchDiscoveryResult {
   final String switchIp;
   final String sysName;

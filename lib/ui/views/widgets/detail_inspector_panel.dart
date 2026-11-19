@@ -2,10 +2,10 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:net_route_scout/core/app_theme.dart';
+import 'package:net_route_scout/core/constants.dart';
 import 'package:net_route_scout/domain/models/interface_health_stats.dart';
 import 'package:net_route_scout/domain/models/network_edge.dart';
 import 'package:net_route_scout/domain/models/network_node.dart';
-import 'package:net_route_scout/domain/models/stp_port_info.dart';
 import 'package:net_route_scout/domain/models/switch_poe_status.dart';
 import 'package:net_route_scout/ui/view_models/topology_view_model.dart';
 import 'edit_device_dialog.dart';
@@ -202,8 +202,8 @@ class DetailInspectorPanel extends StatelessWidget {
                     spacing: 4,
                     runSpacing: 4,
                     children: node.stpPorts.map((p) {
-                      final isBlk = p.state == StpPortState.blocking;
-                      final isFwd = p.state == StpPortState.forwarding;
+                      final isBlk = p.isBlocking;
+                      final isFwd = p.isForwarding;
                       final badgeColor = isBlk
                           ? const Color(0xFFEF4444)
                           : (isFwd ? const Color(0xFF10B981) : Colors.grey);
@@ -448,7 +448,10 @@ class DetailInspectorPanel extends StatelessWidget {
         spacing: 4,
         runSpacing: 4,
         children: node.interfaceHealth.map((h) {
-          final isWarn = h.isDegradedSpeed || h.isHalfDuplex || h.hasActiveErrors;
+          final isWarn = h.isDegradedSpeed ||
+              h.isHalfDuplex ||
+              h.hasHistoricalErrors ||
+              h.hasActiveErrors;
           final color = isWarn ? const Color(0xFFF59E0B) : const Color(0xFF10B981);
           final duplexShort = h.duplex == DuplexMode.halfDuplex
               ? ' HDX'
@@ -456,6 +459,8 @@ class DetailInspectorPanel extends StatelessWidget {
           final errStr = (h.inErrors > 0 || h.inErrorsDelta > 0)
               ? ' | CRC ${h.inErrors}${h.inErrorsDelta > 0 ? ' (+${h.inErrorsDelta}Δ)' : ''}'
               : '';
+          final outErrStr = h.outErrors > 0 ? ' | OutErr ${h.outErrors}' : '';
+          final inDiscStr = h.inDiscards > 0 ? ' | InDrop ${h.inDiscards}' : '';
           final discStr = (h.outDiscards > 0 || h.outDiscardsDelta > 0)
               ? ' | Drop ${h.outDiscards}${h.outDiscardsDelta > 0 ? ' (+${h.outDiscardsDelta}Δ)' : ''}'
               : '';
@@ -467,7 +472,7 @@ class DetailInspectorPanel extends StatelessWidget {
               border: Border.all(color: color.withValues(alpha: 0.45)),
             ),
             child: Text(
-              '${h.interfaceName}: ${h.formattedSpeed}$duplexShort$errStr$discStr',
+              '${h.interfaceName}: ${h.formattedSpeed}$duplexShort$errStr$outErrStr$inDiscStr$discStr',
               style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w600, color: color),
             ),
           );
@@ -616,28 +621,55 @@ class DetailInspectorPanel extends StatelessWidget {
       color: AppTheme.surfaceContainerLowest,
       child: Row(
         children: [
-          Text(
-            'Discovered: ${vm.nodes.length} nodes, ${vm.edges.length} edges across ${vm.traces.length} targets',
-            style: const TextStyle(fontSize: 11, color: Colors.white54),
-          ),
-          const Spacer(),
-          if (vm.selectedNode != null) ...[
-            Text(
-              'Selected: ${vm.selectedNode!.displayName} (${vm.selectedNode!.ip})',
-              style: const TextStyle(
-                fontSize: 11,
-                fontFamily: 'monospace',
-                color: AppTheme.activeHighlight,
-                fontWeight: FontWeight.bold,
-              ),
+          Flexible(
+            child: Text(
+              'Discovered: ${vm.nodes.length} nodes, ${vm.edges.length} edges across ${vm.traces.length} targets',
+              style: const TextStyle(fontSize: 11, color: Colors.white54),
+              overflow: TextOverflow.ellipsis,
             ),
-            const SizedBox(width: 16),
-          ],
+          ),
+          const SizedBox(width: 12),
+          if (vm.selectedNode != null)
+            Expanded(
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: Text(
+                  'Selected: ${vm.selectedNode!.displayName} (${vm.selectedNode!.ip})',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontFamily: 'monospace',
+                    color: AppTheme.activeHighlight,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            )
+          else
+            const Spacer(),
+          const SizedBox(width: 12),
           Text(
             vm.isSharedDbConnected ? 'Shared DB: Synced' : 'Shared DB: Offline',
             style: TextStyle(
               fontSize: 11,
               color: vm.isSharedDbConnected ? const Color(0xFF10B981) : const Color(0xFFF59E0B),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+            decoration: BoxDecoration(
+              color: AppTheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(4),
+              border: Border.all(color: AppTheme.border),
+            ),
+            child: const Text(
+              AppConstants.appVersion,
+              style: TextStyle(
+                fontSize: 10,
+                fontFamily: 'monospace',
+                color: Colors.white54,
+              ),
             ),
           ),
         ],
