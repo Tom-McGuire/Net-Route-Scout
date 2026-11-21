@@ -26,7 +26,7 @@ class DiffSummaryDrawer extends StatelessWidget {
 
     return Container(
       width: 360,
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: AppTheme.surfaceContainer,
         border: Border(
           left: BorderSide(color: AppTheme.border, width: 1),
@@ -36,9 +36,9 @@ class DiffSummaryDrawer extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _buildHeader(),
-          const Divider(height: 1, color: AppTheme.border),
+          Divider(height: 1, color: AppTheme.border),
           _buildSummaryBar(criticalCount, warningCount),
-          const Divider(height: 1, color: AppTheme.border),
+          Divider(height: 1, color: AppTheme.border),
           Expanded(
             child: diffResult.hasDrift
                 ? ListView.separated(
@@ -56,8 +56,8 @@ class DiffSummaryDrawer extends StatelessWidget {
 
   Widget _buildHeader() {
     final accentColor = diffResult.criticalCount > 0
-        ? const Color(0xFFEF4444)
-        : (diffResult.hasDrift ? const Color(0xFFF59E0B) : AppTheme.primaryAccent);
+        ? AppTheme.error
+        : (diffResult.hasDrift ? AppTheme.warning : AppTheme.primaryAccent);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -78,20 +78,20 @@ class DiffSummaryDrawer extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text(
+                Text(
                   'Baseline Diff',
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.bold,
-                    color: Colors.white,
+                    color: AppTheme.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 1),
                 Text(
                   baseline.name,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 11,
-                    color: Colors.white60,
+                    color: AppTheme.textSecondary,
                   ),
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -100,14 +100,14 @@ class DiffSummaryDrawer extends StatelessWidget {
           ),
           if (onExportBaseline != null)
             IconButton(
-              icon: const Icon(Icons.download_outlined, size: 17, color: Colors.white70),
+              icon: Icon(Icons.download_outlined, size: 17, color: AppTheme.textSecondary),
               tooltip: 'Export Baseline Snapshot',
               splashRadius: 16,
               visualDensity: VisualDensity.compact,
               onPressed: onExportBaseline,
             ),
           IconButton(
-            icon: const Icon(Icons.close, size: 17, color: Colors.white54),
+            icon: Icon(Icons.close, size: 17, color: AppTheme.textMuted),
             tooltip: 'Close Diff Summary',
             splashRadius: 16,
             visualDensity: VisualDensity.compact,
@@ -132,20 +132,20 @@ class DiffSummaryDrawer extends StatelessWidget {
                 if (!diffResult.hasDrift)
                   _buildSummaryChip(
                     label: 'All Match',
-                    color: const Color(0xFF10B981),
+                    color: AppTheme.success,
                     icon: Icons.check_circle_outline,
                   )
                 else ...[
                   if (criticalCount > 0)
                     _buildSummaryChip(
                       label: 'Critical: $criticalCount',
-                      color: const Color(0xFFEF4444),
+                      color: AppTheme.error,
                       icon: Icons.error_outline,
                     ),
                   if (warningCount > 0)
                     _buildSummaryChip(
                       label: 'Warnings: $warningCount',
-                      color: const Color(0xFFF59E0B),
+                      color: AppTheme.warning,
                       icon: Icons.warning_amber_rounded,
                     ),
                 ],
@@ -155,10 +155,10 @@ class DiffSummaryDrawer extends StatelessWidget {
           const SizedBox(width: 8),
           Text(
             _formatTimestamp(baseline.createdAt),
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 10,
               fontFamily: 'monospace',
-              color: Colors.white38,
+              color: AppTheme.textMuted,
             ),
           ),
         ],
@@ -206,29 +206,29 @@ class DiffSummaryDrawer extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: const Color(0xFF10B981).withValues(alpha: 0.12),
+                color: AppTheme.success.withValues(alpha: 0.12),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.verified_outlined,
                 size: 30,
-                color: Color(0xFF10B981),
+                color: AppTheme.success,
               ),
             ),
             const SizedBox(height: 12),
-            const Text(
+            Text(
               'All Match',
               style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.bold,
-                color: Colors.white,
+                color: AppTheme.textPrimary,
               ),
             ),
             const SizedBox(height: 6),
             Text(
               'Live topology matches "${baseline.name}" across ${baseline.nodes.length} nodes and ${baseline.edges.length} links.',
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 11.5, color: Colors.white54),
+              style: TextStyle(fontSize: 11.5, color: AppTheme.textMuted),
             ),
           ],
         ),
@@ -238,12 +238,12 @@ class DiffSummaryDrawer extends StatelessWidget {
 
   Widget _buildDiffItemCard(TopologyDiffItem item) {
     final (String typeLabel, Color accentColor, IconData icon) = switch (item.type) {
-      DiffChangeType.missing => ('MISSING', const Color(0xFFEF4444), Icons.remove_circle_outline),
-      DiffChangeType.added => ('NEW', const Color(0xFF10B981), Icons.add_circle_outline),
-      DiffChangeType.roleChanged => ('ROLE SHIFT', const Color(0xFFEF4444), Icons.swap_horiz),
-      DiffChangeType.stpStateChanged => ('STP STATE', const Color(0xFFEF4444), Icons.alt_route),
-      DiffChangeType.linkDegraded => ('DEGRADED', const Color(0xFFF59E0B), Icons.speed),
-      DiffChangeType.unchanged => ('MATCH', Colors.white54, Icons.check),
+      DiffChangeType.missing => ('MISSING', AppTheme.error, Icons.remove_circle_outline),
+      DiffChangeType.added => ('NEW', AppTheme.success, Icons.add_circle_outline),
+      DiffChangeType.roleChanged => ('ROLE SHIFT', AppTheme.error, Icons.swap_horiz),
+      DiffChangeType.stpStateChanged => ('STP STATE', AppTheme.error, Icons.alt_route),
+      DiffChangeType.linkDegraded => ('DEGRADED', AppTheme.warning, Icons.speed),
+      DiffChangeType.unchanged => ('MATCH', AppTheme.textMuted, Icons.check),
     };
 
     return Container(
@@ -292,25 +292,25 @@ class DiffSummaryDrawer extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFEF4444).withValues(alpha: 0.14),
+                    color: AppTheme.error.withValues(alpha: 0.14),
                     borderRadius: BorderRadius.circular(3),
                   ),
-                  child: const Text(
+                  child: Text(
                     'CRITICAL',
                     style: TextStyle(
                       fontSize: 8.5,
                       fontWeight: FontWeight.bold,
-                      color: Color(0xFFEF4444),
+                      color: AppTheme.error,
                     ),
                   ),
                 ),
               const Spacer(),
               Text(
                 item.isEdge ? 'LINK' : 'NODE',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 9.5,
                   fontWeight: FontWeight.w600,
-                  color: Colors.white38,
+                  color: AppTheme.textMuted,
                 ),
               ),
             ],
@@ -318,10 +318,10 @@ class DiffSummaryDrawer extends StatelessWidget {
           const SizedBox(height: 7),
           Text(
             item.title,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w600,
-              color: Colors.white,
+              color: AppTheme.textPrimary,
             ),
           ),
           const SizedBox(height: 8),
@@ -334,7 +334,7 @@ class DiffSummaryDrawer extends StatelessWidget {
             ),
             child: Column(
               children: [
-                _buildComparisonRow('Baseline', item.baselineValue, Colors.white60),
+                _buildComparisonRow('Baseline', item.baselineValue, AppTheme.textSecondary),
                 const SizedBox(height: 4),
                 _buildComparisonRow('Current', item.currentValue, accentColor),
               ],
@@ -346,10 +346,10 @@ class DiffSummaryDrawer extends StatelessWidget {
               Expanded(
                 child: Text(
                   item.targetId,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 10,
                     fontFamily: 'monospace',
-                    color: Colors.white38,
+                    color: AppTheme.textMuted,
                   ),
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -359,17 +359,17 @@ class DiffSummaryDrawer extends StatelessWidget {
                 height: 26,
                 child: OutlinedButton.icon(
                   onPressed: () => onFocusTarget(item.targetId),
-                  icon: const Icon(Icons.center_focus_strong, size: 13, color: AppTheme.primaryAccent),
-                  label: const Text(
+                  icon: Icon(Icons.center_focus_strong, size: 13, color: AppTheme.primaryAccent),
+                  label: Text(
                     'Focus',
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w600,
-                      color: Colors.white,
+                      color: AppTheme.textPrimary,
                     ),
                   ),
                   style: OutlinedButton.styleFrom(
-                    side: const BorderSide(color: AppTheme.primaryAccent, width: 1),
+                    side: BorderSide(color: AppTheme.primaryAccent, width: 1),
                     padding: const EdgeInsets.symmetric(horizontal: 10),
                     visualDensity: VisualDensity.compact,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
@@ -391,7 +391,7 @@ class DiffSummaryDrawer extends StatelessWidget {
           width: 60,
           child: Text(
             label,
-            style: const TextStyle(fontSize: 10.5, color: Colors.white38),
+            style: TextStyle(fontSize: 10.5, color: AppTheme.textMuted),
           ),
         ),
         Expanded(

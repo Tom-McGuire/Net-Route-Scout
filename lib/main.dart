@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:material_ui/material_ui.dart';
 import 'package:network_suite_shared/network_suite_shared.dart';
@@ -12,9 +13,11 @@ import 'ui/views/main_screen.dart';
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Safely initialize shared database
+  // Safely initialize shared database and synchronize initial theme mode
   try {
     await SharedDeviceDatabase.instance.init();
+    final mode = await SharedDeviceDatabase.instance.getThemeMode();
+    AppTheme.isDark = (mode == 'dark');
   } catch (e) {
     debugPrint('Shared device database fallback: $e');
   }
@@ -51,33 +54,72 @@ void main(List<String> args) async {
   runApp(NetRouteScoutApp(viewModel: viewModel));
 }
 
-class NetRouteScoutApp extends StatelessWidget {
+class NetRouteScoutApp extends StatefulWidget {
   const NetRouteScoutApp({super.key, this.viewModel});
 
   final TopologyViewModel? viewModel;
 
   @override
+  State<NetRouteScoutApp> createState() => _NetRouteScoutAppState();
+}
+
+class _NetRouteScoutAppState extends State<NetRouteScoutApp> {
+  late String _themeMode;
+  StreamSubscription<void>? _dbSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _themeMode = AppTheme.isDark ? 'dark' : 'light';
+    _dbSub = SharedDeviceDatabase.instance.onDatabaseChanged.listen((_) {
+      _syncTheme();
+    });
+  }
+
+  Future<void> _syncTheme() async {
+    try {
+      final mode = await SharedDeviceDatabase.instance.getThemeMode();
+      if (mode != _themeMode && mounted) {
+        setState(() {
+          _themeMode = mode;
+          AppTheme.isDark = (mode == 'dark');
+        });
+      }
+    } catch (e) {
+      debugPrint('Failed to sync theme mode: $e');
+    }
+  }
+
+  @override
+  void dispose() {
+    _dbSub?.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (viewModel != null) {
+    final app = MaterialApp(
+      title: AppConstants.appTitle,
+      debugShowCheckedModeBanner: false,
+      theme: AppTheme.lightTheme(),
+      darkTheme: AppTheme.darkTheme(),
+      themeMode: _themeMode == 'dark' ? ThemeMode.dark : ThemeMode.light,
+      home: KeyedSubtree(
+        key: ValueKey(_themeMode),
+        child: const MainScreen(),
+      ),
+    );
+
+    if (widget.viewModel != null) {
       return ChangeNotifierProvider<TopologyViewModel>.value(
-        value: viewModel!,
-        child: MaterialApp(
-          title: AppConstants.appTitle,
-          debugShowCheckedModeBanner: false,
-          theme: AppTheme.darkTheme(),
-          home: const MainScreen(),
-        ),
+        value: widget.viewModel!,
+        child: app,
       );
     }
 
     return ChangeNotifierProvider<TopologyViewModel>(
       create: (_) => TopologyViewModel(),
-      child: MaterialApp(
-        title: AppConstants.appTitle,
-        debugShowCheckedModeBanner: false,
-        theme: AppTheme.darkTheme(),
-        home: const MainScreen(),
-      ),
+      child: app,
     );
   }
 }

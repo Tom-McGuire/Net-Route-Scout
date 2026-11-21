@@ -29,7 +29,7 @@ Future<void> showNodeActionsContextMenu(
     color: AppTheme.surfaceContainerHigh,
     shape: RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(8),
-      side: const BorderSide(color: AppTheme.border),
+      side: BorderSide(color: AppTheme.border),
     ),
     items: [
       if (hasValidSubnet)
@@ -37,12 +37,12 @@ Future<void> showNodeActionsContextMenu(
           value: 'scan_arp',
           child: Row(
             children: [
-              const Icon(Icons.radar, size: 16, color: AppTheme.primaryAccent),
+              Icon(Icons.radar, size: 16, color: AppTheme.primaryAccent),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
                   'Scan Subnet with ARP Scout ($subnet)',
-                  style: const TextStyle(fontSize: 12.5, color: Colors.white),
+                  style: TextStyle(fontSize: 12.5, color: AppTheme.textPrimary),
                 ),
               ),
             ],
@@ -52,54 +52,54 @@ Future<void> showNodeActionsContextMenu(
         value: 'select_path',
         child: Row(
           children: [
-            const Icon(Icons.alt_route, size: 16, color: AppTheme.activeHighlight),
+            Icon(Icons.alt_route, size: 16, color: AppTheme.activeHighlight),
             const SizedBox(width: 10),
             Text(
               vm.selectedNodeId == node.id ? 'Deselect Node' : 'Focus / Select Node Path',
-              style: const TextStyle(fontSize: 12.5, color: Colors.white),
+              style: TextStyle(fontSize: 12.5, color: AppTheme.textPrimary),
             ),
           ],
         ),
       ),
       if (!node.isLocalHost) ...[
         if (!node.isSwitch)
-          const PopupMenuItem<String>(
+          PopupMenuItem<String>(
             value: 'define_switch',
             child: Row(
               children: [
-                Icon(Icons.hub, size: 16, color: Color(0xFF06B6D4)),
-                SizedBox(width: 10),
+                Icon(Icons.hub, size: 16, color: AppTheme.cyan),
+                const SizedBox(width: 10),
                 Text(
                   'Define as Switch Node',
-                  style: TextStyle(fontSize: 12.5, color: Colors.white),
+                  style: TextStyle(fontSize: 12.5, color: AppTheme.textPrimary),
                 ),
               ],
             ),
           )
         else ...[
-          const PopupMenuItem<String>(
+          PopupMenuItem<String>(
             value: 'revert_switch',
             child: Row(
               children: [
-                Icon(Icons.undo, size: 16, color: Colors.white70),
-                SizedBox(width: 10),
+                Icon(Icons.undo, size: 16, color: AppTheme.textSecondary),
+                const SizedBox(width: 10),
                 Text(
                   'Revert to Standard Node',
-                  style: TextStyle(fontSize: 12.5, color: Colors.white),
+                  style: TextStyle(fontSize: 12.5, color: AppTheme.textPrimary),
                 ),
               ],
             ),
           ),
           if (!node.isUnresponsive)
-            const PopupMenuItem<String>(
+            PopupMenuItem<String>(
               value: 'query_snmp',
               child: Row(
                 children: [
-                  Icon(Icons.sensors, size: 16, color: Color(0xFF06B6D4)),
-                  SizedBox(width: 10),
+                  Icon(Icons.sensors, size: 16, color: AppTheme.cyan),
+                  const SizedBox(width: 10),
                   Text(
                     'Query Switch via SNMP...',
-                    style: TextStyle(fontSize: 12.5, color: Colors.white),
+                    style: TextStyle(fontSize: 12.5, color: AppTheme.textPrimary),
                   ),
                 ],
               ),
@@ -109,53 +109,53 @@ Future<void> showNodeActionsContextMenu(
           value: 'connect_switch',
           child: Row(
             children: [
-              const Icon(Icons.cable, size: 16, color: Color(0xFF06B6D4)),
+              Icon(Icons.cable, size: 16, color: AppTheme.cyan),
               const SizedBox(width: 10),
               Text(
                 node.connectedSwitchId != null ? 'Change Connected Switch...' : 'Connect to Switch...',
-                style: const TextStyle(fontSize: 12.5, color: Colors.white),
+                style: TextStyle(fontSize: 12.5, color: AppTheme.textPrimary),
               ),
             ],
           ),
         ),
         if (node.connectedSwitchId != null)
-          const PopupMenuItem<String>(
+          PopupMenuItem<String>(
             value: 'disconnect_switch',
             child: Row(
               children: [
-                Icon(Icons.link_off, size: 16, color: Colors.redAccent),
-                SizedBox(width: 10),
+                Icon(Icons.link_off, size: 16, color: AppTheme.error),
+                const SizedBox(width: 10),
                 Text(
                   'Disconnect from Switch',
-                  style: TextStyle(fontSize: 12.5, color: Colors.redAccent),
+                  style: TextStyle(fontSize: 12.5, color: AppTheme.error),
                 ),
               ],
             ),
           ),
       ],
-      const PopupMenuItem<String>(
+      PopupMenuItem<String>(
         value: 'edit_shared',
         child: Row(
           children: [
-            Icon(Icons.edit, size: 16, color: Colors.white70),
-            SizedBox(width: 10),
+            Icon(Icons.edit, size: 16, color: AppTheme.textSecondary),
+            const SizedBox(width: 10),
             Text(
               'Edit Shared Device Identity',
-              style: TextStyle(fontSize: 12.5, color: Colors.white),
+              style: TextStyle(fontSize: 12.5, color: AppTheme.textPrimary),
             ),
           ],
         ),
       ),
       if (!node.isUnresponsive)
-        const PopupMenuItem<String>(
+        PopupMenuItem<String>(
           value: 'copy_ip',
           child: Row(
             children: [
-              Icon(Icons.copy, size: 16, color: Colors.white70),
-              SizedBox(width: 10),
+              Icon(Icons.copy, size: 16, color: AppTheme.textSecondary),
+              const SizedBox(width: 10),
               Text(
                 'Copy IP Address',
-                style: TextStyle(fontSize: 12.5, color: Colors.white),
+                style: TextStyle(fontSize: 12.5, color: AppTheme.textPrimary),
               ),
             ],
           ),

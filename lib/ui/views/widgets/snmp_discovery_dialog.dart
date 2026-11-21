@@ -180,33 +180,33 @@ class _SnmpDiscoveryDialogState extends State<SnmpDiscoveryDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      backgroundColor: AppTheme.surfaceContainerHigh,
+      backgroundColor: AppTheme.surface,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(10),
-        side: const BorderSide(color: AppTheme.border),
+        side: BorderSide(color: AppTheme.border),
       ),
       title: Row(
         children: [
           Container(
             padding: const EdgeInsets.all(6),
             decoration: BoxDecoration(
-              color: const Color(0xFF06B6D4).withValues(alpha: 0.15),
+              color: AppTheme.cyan.withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(6),
             ),
-            child: const Icon(Icons.sensors, color: Color(0xFF06B6D4), size: 18),
+            child: Icon(Icons.sensors, color: AppTheme.cyan, size: 18),
           ),
           const SizedBox(width: 10),
-          const Column(
+          Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
                 'SNMP Bridge MIB Discovery',
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white),
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
               ),
               Text(
                 'Query Switch Forwarding Database & LLDP Neighbors',
-                style: TextStyle(fontSize: 10.5, color: Colors.white60),
+                style: TextStyle(fontSize: 10.5, color: AppTheme.textSecondary),
               ),
             ],
           ),
@@ -226,13 +226,13 @@ class _SnmpDiscoveryDialogState extends State<SnmpDiscoveryDialog> {
                     flex: 3,
                     child: TextField(
                       controller: _ipController,
-                      style: const TextStyle(fontSize: 12, color: Colors.white),
-                      decoration: const InputDecoration(
+                      style: TextStyle(fontSize: 12, color: AppTheme.textPrimary),
+                      decoration: InputDecoration(
                         labelText: 'Switch IP Address',
                         hintText: '192.168.1.2',
                         isDense: true,
                         filled: true,
-                        fillColor: Color(0xFF252526),
+                        fillColor: AppTheme.inputFill,
                       ),
                     ),
                   ),
@@ -241,13 +241,13 @@ class _SnmpDiscoveryDialogState extends State<SnmpDiscoveryDialog> {
                     flex: 2,
                     child: TextField(
                       controller: _communityController,
-                      style: const TextStyle(fontSize: 12, color: Colors.white),
-                      decoration: const InputDecoration(
+                      style: TextStyle(fontSize: 12, color: AppTheme.textPrimary),
+                      decoration: InputDecoration(
                         labelText: 'Community',
                         hintText: 'public',
                         isDense: true,
                         filled: true,
-                        fillColor: Color(0xFF252526),
+                        fillColor: AppTheme.inputFill,
                       ),
                     ),
                   ),
@@ -256,13 +256,13 @@ class _SnmpDiscoveryDialogState extends State<SnmpDiscoveryDialog> {
                     width: 70,
                     child: TextField(
                       controller: _portController,
-                      style: const TextStyle(fontSize: 12, color: Colors.white),
-                      decoration: const InputDecoration(
+                      style: TextStyle(fontSize: 12, color: AppTheme.textPrimary),
+                      decoration: InputDecoration(
                         labelText: 'Port',
                         hintText: '161',
                         isDense: true,
                         filled: true,
-                        fillColor: Color(0xFF252526),
+                        fillColor: AppTheme.inputFill,
                       ),
                     ),
                   ),
@@ -275,12 +275,12 @@ class _SnmpDiscoveryDialogState extends State<SnmpDiscoveryDialog> {
                 children: [
                   Row(
                     children: [
-                      const Text('SNMP Version: ', style: TextStyle(fontSize: 11, color: Colors.white70)),
+                      Text('SNMP Version: ', style: TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
                       DropdownButton<SnmpVersion>(
                         value: _version,
                         isDense: true,
-                        dropdownColor: const Color(0xFF252526),
-                        style: const TextStyle(fontSize: 11, color: Colors.white),
+                        dropdownColor: AppTheme.surfaceElevated,
+                        style: TextStyle(fontSize: 11, color: AppTheme.textPrimary),
                         onChanged: (v) {
                           if (v != null) setState(() => _version = v);
                         },
@@ -302,8 +302,8 @@ class _SnmpDiscoveryDialogState extends State<SnmpDiscoveryDialog> {
                         : const Icon(Icons.search, size: 14),
                     label: Text(_isQuerying ? 'Querying...' : 'Query Switch'),
                     style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFF06B6D4),
-                      foregroundColor: Colors.black,
+                      backgroundColor: AppTheme.cyan,
+                      foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                     ),
@@ -316,18 +316,18 @@ class _SnmpDiscoveryDialogState extends State<SnmpDiscoveryDialog> {
                 Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: Colors.red.withValues(alpha: 0.15),
+                    color: AppTheme.error.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: Colors.red.withValues(alpha: 0.4)),
+                    border: Border.all(color: AppTheme.error.withValues(alpha: 0.4)),
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.error_outline, size: 16, color: Colors.redAccent),
+                      Icon(Icons.error_outline, size: 16, color: AppTheme.error),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
                           _errorMessage!,
-                          style: const TextStyle(fontSize: 11, color: Colors.redAccent),
+                          style: TextStyle(fontSize: 11, color: AppTheme.error),
                         ),
                       ),
                     ],
@@ -344,26 +344,26 @@ class _SnmpDiscoveryDialogState extends State<SnmpDiscoveryDialog> {
                 Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF252526),
+                    color: AppTheme.surfaceHigh,
                     borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: const Color(0xFF3E3E42)),
+                    border: Border.all(color: AppTheme.borderSubtle),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
                         children: [
-                          const Icon(Icons.hub, size: 16, color: Color(0xFF06B6D4)),
+                          Icon(Icons.hub, size: 16, color: AppTheme.cyan),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
                               _discoveryResult!.sysName,
-                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white),
+                              style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
                             ),
                           ),
                           Text(
                             _discoveryResult!.switchIp,
-                            style: const TextStyle(fontSize: 11, color: Colors.white54, fontFamily: 'monospace'),
+                            style: TextStyle(fontSize: 11, color: AppTheme.textMuted, fontFamily: 'monospace'),
                           ),
                         ],
                       ),
@@ -371,7 +371,7 @@ class _SnmpDiscoveryDialogState extends State<SnmpDiscoveryDialog> {
                         const SizedBox(height: 4),
                         Text(
                           _discoveryResult!.sysDescr!,
-                          style: const TextStyle(fontSize: 10, color: Colors.white60),
+                          style: TextStyle(fontSize: 10, color: AppTheme.textSecondary),
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -384,15 +384,15 @@ class _SnmpDiscoveryDialogState extends State<SnmpDiscoveryDialog> {
                 // Ports summary
                 Text(
                   'Forwarding Database (${_discoveryResult!.ports.fold<int>(0, (sum, p) => sum + p.connectedMacs.length)} learned MAC addresses across ${_discoveryResult!.ports.length} ports):',
-                  style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: Colors.white),
+                  style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
                 ),
                 const SizedBox(height: 6),
                 Container(
                   constraints: const BoxConstraints(maxHeight: 180),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF1E1E1E),
+                    color: AppTheme.surfaceContainerLow,
                     borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: const Color(0xFF2C2C2C)),
+                    border: Border.all(color: AppTheme.border),
                   ),
                   child: ListView.separated(
                     shrinkWrap: true,
@@ -404,13 +404,13 @@ class _SnmpDiscoveryDialogState extends State<SnmpDiscoveryDialog> {
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                         child: Row(
                           children: [
-                            const Icon(Icons.cable, size: 12, color: Color(0xFF06B6D4)),
+                            Icon(Icons.cable, size: 12, color: AppTheme.cyan),
                             const SizedBox(width: 8),
                             SizedBox(
                               width: 140,
                               child: Text(
                                 port.portName,
-                                style: const TextStyle(fontSize: 11, color: Colors.white, fontWeight: FontWeight.w600),
+                                style: TextStyle(fontSize: 11, color: AppTheme.textPrimary, fontWeight: FontWeight.w600),
                               ),
                             ),
                             Expanded(
@@ -421,7 +421,7 @@ class _SnmpDiscoveryDialogState extends State<SnmpDiscoveryDialog> {
                                 style: TextStyle(
                                   fontSize: 10,
                                   fontFamily: 'monospace',
-                                  color: port.connectedMacs.isEmpty ? Colors.white24 : Colors.white70,
+                                  color: port.connectedMacs.isEmpty ? AppTheme.textMuted : AppTheme.textSecondary,
                                 ),
                                 overflow: TextOverflow.ellipsis,
                               ),
@@ -437,7 +437,7 @@ class _SnmpDiscoveryDialogState extends State<SnmpDiscoveryDialog> {
                   const SizedBox(height: 12),
                   Text(
                     'LLDP / CDP Neighbors (${_discoveryResult!.neighbors.length}):',
-                    style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: Colors.white),
+                    style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
                   ),
                   const SizedBox(height: 6),
                   Column(
@@ -446,15 +446,15 @@ class _SnmpDiscoveryDialogState extends State<SnmpDiscoveryDialog> {
                         margin: const EdgeInsets.only(bottom: 4),
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF252526),
+                          color: AppTheme.surfaceHigh,
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: Row(
                           children: [
-                            const Icon(Icons.alt_route, size: 13, color: AppTheme.activeHighlight),
+                            Icon(Icons.alt_route, size: 13, color: AppTheme.activeHighlight),
                             const SizedBox(width: 8),
-                            Text('${n.localPort} ➔ ', style: const TextStyle(fontSize: 11, color: Colors.white60)),
-                            Text(n.remoteSysName, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white)),
+                            Text('${n.localPort} ➔ ', style: TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
+                            Text(n.remoteSysName, style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppTheme.textPrimary)),
                           ],
                         ),
                       );
@@ -469,7 +469,7 @@ class _SnmpDiscoveryDialogState extends State<SnmpDiscoveryDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel', style: TextStyle(color: Colors.white70, fontSize: 12)),
+          child: Text('Cancel', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
         ),
         if (_discoveryResult != null)
           FilledButton.icon(
@@ -477,7 +477,7 @@ class _SnmpDiscoveryDialogState extends State<SnmpDiscoveryDialog> {
             icon: const Icon(Icons.check, size: 14),
             label: const Text('Apply to Topology'),
             style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFF10B981),
+              backgroundColor: AppTheme.success,
               foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
             ),

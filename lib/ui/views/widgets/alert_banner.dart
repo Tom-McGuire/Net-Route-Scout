@@ -22,7 +22,7 @@ class AlertBanner extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
         decoration: BoxDecoration(
           color: AppTheme.primaryAccent.withValues(alpha: 0.1),
-          border: const Border(
+          border: Border(
             bottom: BorderSide(color: AppTheme.border, width: 1),
           ),
         ),
@@ -30,7 +30,7 @@ class AlertBanner extends StatelessWidget {
           children: [
             Row(
               children: [
-                const SizedBox(
+                SizedBox(
                   width: 14,
                   height: 14,
                   child: CircularProgressIndicator(
@@ -42,7 +42,7 @@ class AlertBanner extends StatelessWidget {
                 Expanded(
                   child: Text(
                     progress.phase,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
                       color: AppTheme.primaryAccent,
@@ -52,20 +52,20 @@ class AlertBanner extends StatelessWidget {
                 if (progress.currentTarget != null)
                   Text(
                     'Probing: ${progress.currentTarget}',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 11,
                       fontFamily: 'monospace',
-                      color: Colors.white70,
+                      color: AppTheme.textSecondary,
                     ),
                   ),
                 const SizedBox(width: 12),
                 Text(
                   '${progress.completedTargets} / ${progress.totalTargets} (${progress.percentage}%)',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.bold,
                     fontFamily: 'monospace',
-                    color: Colors.white,
+                    color: AppTheme.textPrimary,
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -73,14 +73,14 @@ class AlertBanner extends StatelessWidget {
                   height: 24,
                   child: TextButton.icon(
                     onPressed: vm.cancelSweep,
-                    icon: const Icon(Icons.stop_circle, size: 14, color: Color(0xFFEF4444)),
-                    label: const Text(
+                    icon: Icon(Icons.stop_circle, size: 14, color: AppTheme.error),
+                    label: Text(
                       'Stop Scan',
-                      style: TextStyle(fontSize: 11, color: Color(0xFFEF4444)),
+                      style: TextStyle(fontSize: 11, color: AppTheme.error),
                     ),
                     style: TextButton.styleFrom(
                       padding: const EdgeInsets.symmetric(horizontal: 8),
-                      backgroundColor: const Color(0xFFEF4444).withValues(alpha: 0.15),
+                      backgroundColor: AppTheme.error.withValues(alpha: 0.15),
                     ),
                   ),
                 ),
@@ -91,8 +91,8 @@ class AlertBanner extends StatelessWidget {
               borderRadius: BorderRadius.circular(2),
               child: LinearProgressIndicator(
                 value: progress.fraction > 0 ? progress.fraction : null,
-                backgroundColor: Colors.white10,
-                valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.primaryAccent),
+                backgroundColor: AppTheme.border,
+                valueColor: AlwaysStoppedAnimation<Color>(AppTheme.primaryAccent),
                 minHeight: 3,
               ),
             ),
@@ -106,14 +106,14 @@ class AlertBanner extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       decoration: BoxDecoration(
-        color: const Color(0xFFF59E0B).withValues(alpha: 0.12),
-        border: const Border(
-          bottom: BorderSide(color: Color(0xFFF59E0B), width: 1),
+        color: AppTheme.warning.withValues(alpha: 0.12),
+        border: Border(
+          bottom: BorderSide(color: AppTheme.warning, width: 1),
         ),
       ),
       child: Row(
         children: [
-          const Icon(Icons.info_outline, size: 16, color: Color(0xFFF59E0B)),
+          Icon(Icons.info_outline, size: 16, color: AppTheme.warning),
           const SizedBox(width: 10),
           Expanded(
             child: Tooltip(
@@ -122,13 +122,13 @@ class AlertBanner extends StatelessWidget {
                 displayMessage,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 12, color: Color(0xFFF59E0B)),
+                style: TextStyle(fontSize: 12, color: AppTheme.warning),
               ),
             ),
           ),
           IconButton(
             onPressed: vm.dismissAlertBanner,
-            icon: const Icon(Icons.close, size: 14, color: Colors.white54),
+            icon: Icon(Icons.close, size: 14, color: AppTheme.textMuted),
             tooltip: 'Dismiss alert',
             splashRadius: 14,
             padding: EdgeInsets.zero,

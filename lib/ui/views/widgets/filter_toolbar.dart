@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:network_suite_shared/network_suite_shared.dart';
 import 'package:provider/provider.dart';
+import 'package:net_route_scout/core/app_theme.dart';
 import 'package:net_route_scout/domain/models/unknown_device_entry.dart';
 import 'package:net_route_scout/ui/view_models/topology_view_model.dart';
 import 'device_library_dialog.dart';
@@ -230,12 +231,12 @@ class _FilterToolbarState extends State<FilterToolbar> {
       decoration: BoxDecoration(
         color: vm.showAutoDetected
             ? Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.3)
-            : const Color(0xFF252526),
+            : AppTheme.inputFill,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
           color: vm.showAutoDetected
               ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.5)
-              : const Color(0xFF3E3E42),
+              : AppTheme.borderSubtle,
         ),
       ),
       child: Tooltip(
@@ -250,7 +251,7 @@ class _FilterToolbarState extends State<FilterToolbar> {
               size: 14,
               color: vm.showAutoDetected
                   ? Theme.of(context).colorScheme.primary
-                  : Colors.grey,
+                  : AppTheme.textMuted,
             ),
             const SizedBox(width: 6),
             const Text(
@@ -284,19 +285,19 @@ class _FilterToolbarState extends State<FilterToolbar> {
 
     return Row(
       children: [
-        const Padding(
-          padding: EdgeInsets.only(right: 8.0),
+        Padding(
+          padding: const EdgeInsets.only(right: 8.0),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.devices, size: 14, color: Colors.blueAccent),
-              SizedBox(width: 4),
+              Icon(Icons.devices, size: 14, color: AppTheme.info),
+              const SizedBox(width: 4),
               Text(
                 'DEVICES:',
                 style: TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.bold,
-                  color: Colors.grey,
+                  color: AppTheme.textSecondary,
                   letterSpacing: 0.5,
                 ),
               ),
@@ -335,13 +336,13 @@ class _FilterToolbarState extends State<FilterToolbar> {
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                            color: isSelected ? Colors.white : Colors.grey.shade400,
+                            color: isSelected ? AppTheme.textPrimary : AppTheme.textSecondary,
                           ),
                         ),
-                        selectedColor: catColor.withValues(alpha: 0.35),
-                        backgroundColor: const Color(0xFF252526),
+                        selectedColor: catColor.withValues(alpha: AppTheme.isDark ? 0.35 : 0.2),
+                        backgroundColor: AppTheme.inputFill,
                         side: BorderSide(
-                          color: isSelected ? catColor : const Color(0xFF3E3E42),
+                          color: isSelected ? catColor : AppTheme.borderSubtle,
                           width: 1,
                         ),
                         onSelected: (_) => vm.toggleDevicePill(device.macAddress),
@@ -378,22 +379,22 @@ class _FilterToolbarState extends State<FilterToolbar> {
                           labelPadding: const EdgeInsets.symmetric(horizontal: 4),
                           materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                           visualDensity: VisualDensity.compact,
-                          avatar: const CircleAvatar(
+                          avatar: CircleAvatar(
                             radius: 5,
-                            backgroundColor: Colors.grey,
+                            backgroundColor: AppTheme.textMuted,
                           ),
                           label: Text(
                             '${entry.displayName} ($count)',
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                              color: isSelected ? Colors.white : Colors.grey.shade400,
+                              color: isSelected ? AppTheme.textPrimary : AppTheme.textSecondary,
                             ),
                           ),
-                          selectedColor: Colors.blueAccent.withValues(alpha: 0.35),
-                          backgroundColor: const Color(0xFF252526),
+                          selectedColor: AppTheme.info.withValues(alpha: AppTheme.isDark ? 0.35 : 0.2),
+                          backgroundColor: AppTheme.inputFill,
                           side: BorderSide(
-                            color: isSelected ? Colors.blueAccent : const Color(0xFF3E3E42),
+                            color: isSelected ? AppTheme.info : AppTheme.borderSubtle,
                             width: 1,
                           ),
                           onSelected: (_) => vm.toggleDevicePill(entry.key),
@@ -412,8 +413,8 @@ class _FilterToolbarState extends State<FilterToolbar> {
                     label: const Text('Manage', style: TextStyle(fontSize: 11)),
                     materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     visualDensity: VisualDensity.compact,
-                    backgroundColor: const Color(0xFF252526),
-                    side: const BorderSide(color: Color(0xFF3E3E42), width: 1),
+                    backgroundColor: AppTheme.inputFill,
+                    side: BorderSide(color: AppTheme.borderSubtle, width: 1),
                     tooltip: 'Manage device library and visibility in Net Route Scout',
                     onPressed: () => DeviceLibraryDialog.show(context),
                   ),
@@ -426,23 +427,23 @@ class _FilterToolbarState extends State<FilterToolbar> {
                     height: 24,
                     padding: const EdgeInsets.symmetric(horizontal: 8),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFF59E0B).withValues(alpha: 0.18),
+                      color: AppTheme.warning.withValues(alpha: 0.18),
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
-                        color: const Color(0xFFF59E0B).withValues(alpha: 0.5),
+                        color: AppTheme.warning.withValues(alpha: 0.5),
                       ),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(Icons.alt_route, size: 13, color: Color(0xFFF59E0B)),
+                        Icon(Icons.alt_route, size: 13, color: AppTheme.warning),
                         const SizedBox(width: 4),
                         Text(
                           'Common Path: ${vm.commonPathNodeIds.length} hops',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.bold,
-                            color: Color(0xFFF59E0B),
+                            color: AppTheme.warning,
                           ),
                         ),
                       ],
@@ -693,25 +694,25 @@ class _FilterToolbarState extends State<FilterToolbar> {
   }
 
   Color _getCategoryColor(String? catKey) {
-    if (catKey == null) return Colors.blueAccent;
+    if (catKey == null) return AppTheme.info;
     switch (catKey.toLowerCase()) {
       case 'router':
       case 'gateway':
-        return const Color(0xFFF59E0B);
+        return AppTheme.warning;
       case 'switch':
-        return const Color(0xFF38BDF8);
+        return AppTheme.router;
       case 'server':
-        return const Color(0xFF818CF8);
+        return AppTheme.hostLocal;
       case 'workstation':
       case 'pc':
-        return const Color(0xFF10B981);
+        return AppTheme.success;
       case 'printer':
         return const Color(0xFFA855F7);
       case 'mobile':
       case 'phone':
-        return const Color(0xFFEC4899);
+        return AppTheme.activeHighlight;
       default:
-        return const Color(0xFF007ACC);
+        return AppTheme.accent;
     }
   }
 }

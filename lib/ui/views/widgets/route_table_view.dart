@@ -24,10 +24,10 @@ class _RouteTableViewState extends State<RouteTableView> {
     final selectedNodeId = vm.selectedNodeId;
 
     if (nodes.isEmpty) {
-      return const Center(
+      return Center(
         child: Text(
           'No devices found matching filter.',
-          style: TextStyle(color: Colors.white54, fontSize: 13),
+          style: TextStyle(color: AppTheme.textMuted, fontSize: 13),
         ),
       );
     }
@@ -77,13 +77,13 @@ class _RouteTableViewState extends State<RouteTableView> {
                 _buildHeaderCell('MAC ADDRESS', 160, 3),
                 _buildHeaderCell('VENDOR / OUI', 160, 4),
                 _buildHeaderCell('RTT (LATENCY)', 100, 5),
-                const Expanded(
+                Expanded(
                   child: Text(
                     'PATH TRAVERSAL ROUTE',
                     style: TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.bold,
-                      color: Colors.white70,
+                      color: AppTheme.textSecondary,
                       letterSpacing: 0.5,
                     ),
                   ),
@@ -112,7 +112,9 @@ class _RouteTableViewState extends State<RouteTableView> {
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     color: isSelected
                         ? AppTheme.primaryAccent.withValues(alpha: 0.18)
-                        : (index % 2 == 0 ? Colors.transparent : Colors.white.withValues(alpha: 0.02)),
+                        : (index % 2 == 0
+                            ? Colors.transparent
+                            : AppTheme.textPrimary.withValues(alpha: 0.025)),
                     child: Row(
                       children: [
                         // Hop Depth Badge
@@ -123,7 +125,7 @@ class _RouteTableViewState extends State<RouteTableView> {
                             style: TextStyle(
                               fontSize: 11,
                               fontFamily: 'monospace',
-                              color: node.isSwitch ? const Color(0xFF06B6D4) : Colors.white70,
+                              color: node.isSwitch ? AppTheme.cyan : AppTheme.textSecondary,
                               fontWeight: node.isSwitch ? FontWeight.bold : FontWeight.normal,
                             ),
                           ),
@@ -139,8 +141,8 @@ class _RouteTableViewState extends State<RouteTableView> {
                                   width: 6,
                                   height: 6,
                                   margin: const EdgeInsets.only(right: 6),
-                                  decoration: const BoxDecoration(
-                                    color: Color(0xFF10B981),
+                                  decoration: BoxDecoration(
+                                    color: AppTheme.success,
                                     shape: BoxShape.circle,
                                   ),
                                 ),
@@ -151,7 +153,7 @@ class _RouteTableViewState extends State<RouteTableView> {
                                   style: TextStyle(
                                     fontSize: 11.5,
                                     fontWeight: node.hasSharedName ? FontWeight.bold : FontWeight.normal,
-                                    color: node.hasSharedName ? Colors.white : Colors.white70,
+                                    color: node.hasSharedName ? AppTheme.textPrimary : AppTheme.textSecondary,
                                   ),
                                   overflow: TextOverflow.ellipsis,
                                 ),
@@ -165,10 +167,10 @@ class _RouteTableViewState extends State<RouteTableView> {
                           width: 140,
                           child: Text(
                             node.ip,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 11,
                               fontFamily: 'monospace',
-                              color: Colors.white,
+                              color: AppTheme.textPrimary,
                             ),
                           ),
                         ),
@@ -181,7 +183,7 @@ class _RouteTableViewState extends State<RouteTableView> {
                             style: TextStyle(
                               fontSize: 10.5,
                               fontFamily: 'monospace',
-                              color: node.macAddress != null ? Colors.white70 : Colors.white30,
+                              color: node.macAddress != null ? AppTheme.textSecondary : AppTheme.textMuted,
                             ),
                           ),
                         ),
@@ -191,9 +193,9 @@ class _RouteTableViewState extends State<RouteTableView> {
                           width: 160,
                           child: Text(
                             node.vendor ?? '—',
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 11,
-                              color: Colors.white60,
+                              color: AppTheme.textSecondary,
                             ),
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -204,10 +206,10 @@ class _RouteTableViewState extends State<RouteTableView> {
                           width: 100,
                           child: Text(
                             node.rttMs != null ? '${node.rttMs!.toStringAsFixed(1)} ms' : '—',
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 11,
                               fontFamily: 'monospace',
-                              color: Colors.white70,
+                              color: AppTheme.textSecondary,
                             ),
                           ),
                         ),
@@ -216,9 +218,9 @@ class _RouteTableViewState extends State<RouteTableView> {
                         Expanded(
                           child: Text(
                             pathStr.isNotEmpty ? pathStr : node.ip,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 10.5,
-                              color: Colors.white54,
+                              color: AppTheme.textMuted,
                             ),
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -261,7 +263,7 @@ class _RouteTableViewState extends State<RouteTableView> {
                 style: TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.bold,
-                  color: isCurrent ? AppTheme.primaryAccent : Colors.white70,
+                  color: isCurrent ? AppTheme.primaryAccent : AppTheme.textSecondary,
                   letterSpacing: 0.5,
                 ),
               ),

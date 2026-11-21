@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:net_route_scout/core/app_theme.dart';
 import '../../../data/services/l2_role_sniffer_service.dart';
 
 class L2CapturePermissionDialog extends StatelessWidget {
@@ -28,19 +29,23 @@ class L2CapturePermissionDialog extends StatelessWidget {
     ];
 
     return AlertDialog(
-      backgroundColor: const Color(0xFF1E293B),
+      backgroundColor: AppTheme.surface,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: const BorderSide(color: Color(0xFFF59E0B), width: 1),
+        side: BorderSide(color: AppTheme.warning, width: 1),
       ),
-      title: const Row(
+      title: Row(
         children: [
-          Icon(Icons.shield_outlined, color: Color(0xFFF59E0B), size: 22),
-          SizedBox(width: 10),
+          Icon(Icons.shield_outlined, color: AppTheme.warning, size: 22),
+          const SizedBox(width: 10),
           Expanded(
             child: Text(
               'Packet Capture Permission Required',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: AppTheme.textPrimary,
+              ),
             ),
           ),
         ],
@@ -56,13 +61,13 @@ class L2CapturePermissionDialog extends StatelessWidget {
                 'Net Route Scout detected ${issue.detectedToolsLabel}, but does not '
                 'have permission to capture passive STP / IGMP frames on '
                 '"${issue.interfaceName}".',
-                style: const TextStyle(fontSize: 13, color: Color(0xFFE2E8F0)),
+                style: TextStyle(fontSize: 13, color: AppTheme.textPrimary),
               ),
               const SizedBox(height: 6),
-              const Text(
+              Text(
                 'ICMP/traceroute sweeps still work normally; only passive STP Root '
                 '& IGMP Querier sniffing is skipped.',
-                style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
+                style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
               ),
               if (errorLines.isNotEmpty) ...[
                 const SizedBox(height: 12),
@@ -70,27 +75,27 @@ class L2CapturePermissionDialog extends StatelessWidget {
                   width: double.infinity,
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF0F172A),
+                    color: AppTheme.scaffoldBg,
                     borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: const Color(0xFF334155)),
+                    border: Border.all(color: AppTheme.border),
                   ),
                   child: SelectableText(
                     errorLines.join('\n'),
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontFamily: 'monospace',
                       fontSize: 11,
-                      color: Color(0xFFFCA5A5),
+                      color: AppTheme.error,
                     ),
                   ),
                 ),
               ],
               const SizedBox(height: 16),
-              const Text(
+              Text(
                 'How to resolve:',
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
-                  color: Color(0xFFF8FAFC),
+                  color: AppTheme.textPrimary,
                 ),
               ),
               const SizedBox(height: 8),
@@ -168,31 +173,31 @@ class L2CapturePermissionDialog extends StatelessWidget {
         children: [
           Text(
             title,
-            style: const TextStyle(fontSize: 12, color: Color(0xFFCBD5E1)),
+            style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
           ),
           const SizedBox(height: 4),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             decoration: BoxDecoration(
-              color: const Color(0xFF0F172A),
+              color: AppTheme.scaffoldBg,
               borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: const Color(0xFF334155)),
+              border: Border.all(color: AppTheme.border),
             ),
             child: Row(
               children: [
                 Expanded(
                   child: SelectableText(
                     command,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontFamily: 'monospace',
                       fontSize: 11.5,
-                      color: Color(0xFF67E8F9),
+                      color: AppTheme.cyan,
                     ),
                   ),
                 ),
                 IconButton(
                   tooltip: 'Copy command',
-                  icon: const Icon(Icons.copy, size: 15, color: Color(0xFF94A3B8)),
+                  icon: Icon(Icons.copy, size: 15, color: AppTheme.textSecondary),
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
                   onPressed: () {
@@ -218,7 +223,7 @@ class L2CapturePermissionDialog extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 8),
       child: Text(
         text,
-        style: const TextStyle(fontSize: 12, color: Color(0xFFCBD5E1)),
+        style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
       ),
     );
   }

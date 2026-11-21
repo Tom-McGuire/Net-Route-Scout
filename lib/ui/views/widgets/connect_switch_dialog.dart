@@ -66,20 +66,20 @@ class _ConnectSwitchDialogState extends State<ConnectSwitchDialog> {
         .toList();
 
     return AlertDialog(
-      backgroundColor: AppTheme.surfaceContainerHigh,
+      backgroundColor: AppTheme.surface,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(10),
-        side: const BorderSide(color: AppTheme.border),
+        side: BorderSide(color: AppTheme.border),
       ),
       title: Row(
         children: [
           Container(
             padding: const EdgeInsets.all(6),
             decoration: BoxDecoration(
-              color: const Color(0xFF06B6D4).withValues(alpha: 0.15),
+              color: AppTheme.cyan.withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(6),
             ),
-            child: const Icon(Icons.hub, color: Color(0xFF06B6D4), size: 18),
+            child: Icon(Icons.hub, color: AppTheme.cyan, size: 18),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -87,13 +87,13 @@ class _ConnectSwitchDialogState extends State<ConnectSwitchDialog> {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text(
+                Text(
                   'Connect to Switch',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white),
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
                 ),
                 Text(
                   widget.targetNode.displayName,
-                  style: const TextStyle(fontSize: 11, color: Colors.white60),
+                  style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
                 ),
               ],
             ),
@@ -112,18 +112,18 @@ class _ConnectSwitchDialogState extends State<ConnectSwitchDialog> {
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: Colors.amber.withValues(alpha: 0.1),
+                      color: AppTheme.warning.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: Colors.amber.withValues(alpha: 0.3)),
+                      border: Border.all(color: AppTheme.warning.withValues(alpha: 0.3)),
                     ),
-                    child: const Row(
+                    child: Row(
                       children: [
-                        Icon(Icons.info_outline, size: 16, color: Colors.amber),
-                        SizedBox(width: 8),
+                        Icon(Icons.info_outline, size: 16, color: AppTheme.warning),
+                        const SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             'No switch nodes currently exist in this topology. Create a new switch below or right-click any node to define it as a switch.',
-                            style: TextStyle(fontSize: 11.5, color: Colors.white70),
+                            style: TextStyle(fontSize: 11.5, color: AppTheme.textSecondary),
                           ),
                         ),
                       ],
@@ -131,24 +131,24 @@ class _ConnectSwitchDialogState extends State<ConnectSwitchDialog> {
                   ),
                   const SizedBox(height: 14),
                 ] else ...[
-                  const Text(
+                  Text(
                     'Select Target Switch Node:',
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.white),
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
                   ),
                   const SizedBox(height: 6),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF252526),
+                      color: AppTheme.inputFill,
                       borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: const Color(0xFF3E3E42)),
+                      border: Border.all(color: AppTheme.borderSubtle),
                     ),
                     child: DropdownButtonHideUnderline(
                       child: DropdownButton<String>(
                         value: _selectedSwitchId,
                         isExpanded: true,
-                        dropdownColor: const Color(0xFF252526),
-                        style: const TextStyle(fontSize: 12, color: Colors.white),
+                        dropdownColor: AppTheme.surfaceElevated,
+                        style: TextStyle(fontSize: 12, color: AppTheme.textPrimary),
                         onChanged: (val) {
                           if (val != null) setState(() => _selectedSwitchId = val);
                         },
@@ -157,7 +157,7 @@ class _ConnectSwitchDialogState extends State<ConnectSwitchDialog> {
                             value: sw.id,
                             child: Row(
                               children: [
-                                const Icon(Icons.hub, size: 14, color: Color(0xFF06B6D4)),
+                                Icon(Icons.hub, size: 14, color: AppTheme.cyan),
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
@@ -169,7 +169,7 @@ class _ConnectSwitchDialogState extends State<ConnectSwitchDialog> {
                                   const SizedBox(width: 6),
                                   Text(
                                     '(${sw.ip})',
-                                    style: const TextStyle(fontSize: 10, color: Colors.white38),
+                                    style: TextStyle(fontSize: 10, color: AppTheme.textMuted),
                                   ),
                                 ],
                               ],
@@ -183,24 +183,24 @@ class _ConnectSwitchDialogState extends State<ConnectSwitchDialog> {
                 ],
 
                 // Switch Port Label Input
-                const Text(
+                Text(
                   'Connected Switch Port (Optional):',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.white),
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
                 ),
                 const SizedBox(height: 6),
                 TextField(
                   controller: _portController,
-                  style: const TextStyle(fontSize: 12, color: Colors.white),
+                  style: TextStyle(fontSize: 12, color: AppTheme.textPrimary),
                   decoration: InputDecoration(
                     hintText: 'e.g. Port 4, GigabitEthernet1/0/12...',
-                    hintStyle: const TextStyle(fontSize: 11, color: Colors.white38),
-                    prefixIcon: const Icon(Icons.cable, size: 14, color: Color(0xFF06B6D4)),
+                    hintStyle: TextStyle(fontSize: 11, color: AppTheme.textMuted),
+                    prefixIcon: Icon(Icons.cable, size: 14, color: AppTheme.cyan),
                     isDense: true,
                     filled: true,
-                    fillColor: const Color(0xFF252526),
+                    fillColor: AppTheme.inputFill,
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(6),
-                      borderSide: const BorderSide(color: Color(0xFF3E3E42)),
+                      borderSide: BorderSide(color: AppTheme.borderSubtle),
                     ),
                   ),
                 ),
@@ -209,71 +209,71 @@ class _ConnectSwitchDialogState extends State<ConnectSwitchDialog> {
                 // Button to toggle new switch creation
                 TextButton.icon(
                   onPressed: () => setState(() => _isCreatingNew = true),
-                  icon: const Icon(Icons.add_circle_outline, size: 15, color: Color(0xFF06B6D4)),
-                  label: const Text(
+                  icon: Icon(Icons.add_circle_outline, size: 15, color: AppTheme.cyan),
+                  label: Text(
                     '+ Create New Standalone Switch Node',
-                    style: TextStyle(fontSize: 11.5, color: Color(0xFF06B6D4)),
+                    style: TextStyle(fontSize: 11.5, color: AppTheme.cyan),
                   ),
                 ),
               ] else ...[
                 // New Switch Form
-                const Text(
+                Text(
                   'Create Standalone Switch Node:',
-                  style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Colors.white),
+                  style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
                 ),
                 const SizedBox(height: 10),
                 TextField(
                   controller: _newSwitchNameController,
-                  style: const TextStyle(fontSize: 12, color: Colors.white),
+                  style: TextStyle(fontSize: 12, color: AppTheme.textPrimary),
                   decoration: InputDecoration(
                     labelText: 'Switch Name (Required)',
                     hintText: 'e.g. Core Switch, Floor 2 Distribution Switch',
                     isDense: true,
                     filled: true,
-                    fillColor: const Color(0xFF252526),
+                    fillColor: AppTheme.inputFill,
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(6),
-                      borderSide: const BorderSide(color: Color(0xFF3E3E42)),
+                      borderSide: BorderSide(color: AppTheme.borderSubtle),
                     ),
                   ),
                 ),
                 const SizedBox(height: 10),
                 TextField(
                   controller: _newSwitchIpController,
-                  style: const TextStyle(fontSize: 12, color: Colors.white),
+                  style: TextStyle(fontSize: 12, color: AppTheme.textPrimary),
                   decoration: InputDecoration(
                     labelText: 'Management IP (Optional)',
                     hintText: 'e.g. 192.168.1.2',
                     isDense: true,
                     filled: true,
-                    fillColor: const Color(0xFF252526),
+                    fillColor: AppTheme.inputFill,
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(6),
-                      borderSide: const BorderSide(color: Color(0xFF3E3E42)),
+                      borderSide: BorderSide(color: AppTheme.borderSubtle),
                     ),
                   ),
                 ),
                 const SizedBox(height: 10),
                 TextField(
                   controller: _newSwitchModelController,
-                  style: const TextStyle(fontSize: 12, color: Colors.white),
+                  style: TextStyle(fontSize: 12, color: AppTheme.textPrimary),
                   decoration: InputDecoration(
                     labelText: 'Model / Hardware (Optional)',
                     hintText: 'e.g. Cisco Catalyst 3850, Aruba 2930F',
                     isDense: true,
                     filled: true,
-                    fillColor: const Color(0xFF252526),
+                    fillColor: AppTheme.inputFill,
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(6),
-                      borderSide: const BorderSide(color: Color(0xFF3E3E42)),
+                      borderSide: BorderSide(color: AppTheme.borderSubtle),
                     ),
                   ),
                 ),
                 const SizedBox(height: 8),
                 TextButton.icon(
                   onPressed: () => setState(() => _isCreatingNew = false),
-                  icon: const Icon(Icons.arrow_back, size: 14, color: Colors.white70),
-                  label: const Text('Back to existing switches', style: TextStyle(fontSize: 11, color: Colors.white70)),
+                  icon: Icon(Icons.arrow_back, size: 14, color: AppTheme.textSecondary),
+                  label: Text('Back to existing switches', style: TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
                 ),
               ],
             ],
@@ -287,11 +287,11 @@ class _ConnectSwitchDialogState extends State<ConnectSwitchDialog> {
               widget.viewModel.disconnectNodeFromSwitch(widget.targetNode.id);
               Navigator.of(context).pop();
             },
-            child: const Text('Disconnect Switch', style: TextStyle(color: Colors.redAccent, fontSize: 12)),
+            child: Text('Disconnect Switch', style: TextStyle(color: AppTheme.error, fontSize: 12)),
           ),
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel', style: TextStyle(color: Colors.white70, fontSize: 12)),
+          child: Text('Cancel', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
         ),
         FilledButton(
           onPressed: () {
@@ -320,10 +320,11 @@ class _ConnectSwitchDialogState extends State<ConnectSwitchDialog> {
             Navigator.of(context).pop();
           },
           style: FilledButton.styleFrom(
-            backgroundColor: const Color(0xFF06B6D4),
+            backgroundColor: AppTheme.cyan,
+            foregroundColor: Colors.white,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
           ),
-          child: const Text('Apply Link', style: TextStyle(fontSize: 12, color: Colors.black, fontWeight: FontWeight.bold)),
+          child: const Text('Apply Link', style: TextStyle(fontSize: 12, color: Colors.white, fontWeight: FontWeight.bold)),
         ),
       ],
     );

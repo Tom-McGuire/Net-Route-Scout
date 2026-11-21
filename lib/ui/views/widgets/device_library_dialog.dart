@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:network_suite_shared/network_suite_shared.dart';
 import 'package:provider/provider.dart';
+import 'package:net_route_scout/core/app_theme.dart';
 import 'package:net_route_scout/domain/models/unknown_device_entry.dart';
 import 'package:net_route_scout/ui/view_models/topology_view_model.dart';
 import 'edit_device_dialog.dart';
@@ -72,8 +73,11 @@ class _DeviceLibraryDialogState extends State<DeviceLibraryDialog>
     }).toList();
 
     return Dialog(
-      backgroundColor: const Color(0xFF1E1E1E),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      backgroundColor: AppTheme.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: AppTheme.border),
+      ),
       insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 720, maxHeight: 660),
@@ -98,17 +102,17 @@ class _DeviceLibraryDialogState extends State<DeviceLibraryDialog>
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
+                        Text(
                           'Custom Library',
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
-                            color: Colors.white,
+                            color: AppTheme.textPrimary,
                           ),
                         ),
                         Text(
                           'Manage known and unknown devices in the shared database and configure filter visibility.',
-                          style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
+                          style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
                         ),
                       ],
                     ),
@@ -152,7 +156,7 @@ class _DeviceLibraryDialogState extends State<DeviceLibraryDialog>
                 height: 36,
                 child: TextField(
                   controller: _searchCtrl,
-                  style: const TextStyle(fontSize: 12),
+                  style: TextStyle(fontSize: 12, color: AppTheme.textPrimary),
                   onChanged: (val) => setState(() => _searchQuery = val.trim()),
                   decoration: InputDecoration(
                     hintText: 'Search devices by name, MAC, IP, vendor, or notes...',
@@ -167,15 +171,15 @@ class _DeviceLibraryDialogState extends State<DeviceLibraryDialog>
                           )
                         : null,
                     filled: true,
-                    fillColor: const Color(0xFF252526),
+                    fillColor: AppTheme.inputFill,
                     contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
-                      borderSide: const BorderSide(color: Color(0xFF3E3E42)),
+                      borderSide: BorderSide(color: AppTheme.borderSubtle),
                     ),
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
-                      borderSide: const BorderSide(color: Color(0xFF3E3E42)),
+                      borderSide: BorderSide(color: AppTheme.borderSubtle),
                     ),
                   ),
                 ),
@@ -238,13 +242,13 @@ class _DeviceLibraryDialogState extends State<DeviceLibraryDialog>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.devices, size: 40, color: Colors.grey.shade600),
+            Icon(Icons.devices, size: 40, color: AppTheme.textMuted),
             const SizedBox(height: 10),
             Text(
               _searchQuery.isNotEmpty
                   ? 'No matching known devices found.'
                   : 'No known devices with custom names in database.',
-              style: TextStyle(color: Colors.grey.shade400, fontSize: 13),
+              style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
             ),
           ],
         ),
@@ -269,12 +273,12 @@ class _DeviceLibraryDialogState extends State<DeviceLibraryDialog>
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
-              color: const Color(0xFF252526),
+              color: AppTheme.surfaceHigh,
               borderRadius: BorderRadius.circular(8),
               border: Border.all(
                 color: isVisible
                     ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.35)
-                    : const Color(0xFF3E3E42),
+                    : AppTheme.borderSubtle,
               ),
             ),
             child: Row(
@@ -284,11 +288,11 @@ class _DeviceLibraryDialogState extends State<DeviceLibraryDialog>
                   radius: 16,
                   backgroundColor: isVisible
                       ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.2)
-                      : Colors.grey.withValues(alpha: 0.2),
+                      : AppTheme.textMuted.withValues(alpha: 0.2),
                   child: Icon(
                     device.category.icon,
                     size: 16,
-                    color: isVisible ? Theme.of(context).colorScheme.primary : Colors.grey,
+                    color: isVisible ? Theme.of(context).colorScheme.primary : AppTheme.textMuted,
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -303,10 +307,10 @@ class _DeviceLibraryDialogState extends State<DeviceLibraryDialog>
                           Flexible(
                             child: Text(
                               device.name,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontWeight: FontWeight.bold,
                                 fontSize: 13,
-                                color: Colors.white,
+                                color: AppTheme.textPrimary,
                               ),
                               overflow: TextOverflow.ellipsis,
                             ),
@@ -315,14 +319,14 @@ class _DeviceLibraryDialogState extends State<DeviceLibraryDialog>
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF10B981).withValues(alpha: 0.2),
+                              color: AppTheme.success.withValues(alpha: 0.2),
                               borderRadius: BorderRadius.circular(4),
                             ),
-                            child: const Text(
+                            child: Text(
                               'Custom Name',
                               style: TextStyle(
                                 fontSize: 10,
-                                color: Color(0xFF10B981),
+                                color: AppTheme.success,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
@@ -332,14 +336,14 @@ class _DeviceLibraryDialogState extends State<DeviceLibraryDialog>
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                               decoration: BoxDecoration(
-                                color: Colors.grey.withValues(alpha: 0.2),
+                                color: AppTheme.textMuted.withValues(alpha: 0.2),
                                 borderRadius: BorderRadius.circular(4),
                               ),
-                              child: const Text(
+                              child: Text(
                                 'Hidden from Filters',
                                 style: TextStyle(
                                   fontSize: 10,
-                                  color: Colors.grey,
+                                  color: AppTheme.textMuted,
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
@@ -350,14 +354,14 @@ class _DeviceLibraryDialogState extends State<DeviceLibraryDialog>
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                               decoration: BoxDecoration(
-                                color: Colors.blueAccent.withValues(alpha: 0.2),
+                                color: AppTheme.info.withValues(alpha: 0.2),
                                 borderRadius: BorderRadius.circular(4),
                               ),
                               child: Text(
                                 '$count in trace',
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 10,
-                                  color: Colors.blueAccent,
+                                  color: AppTheme.info,
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
@@ -368,10 +372,10 @@ class _DeviceLibraryDialogState extends State<DeviceLibraryDialog>
                       const SizedBox(height: 2),
                       Text(
                         '${device.macAddress} • ${device.vendor ?? "Unknown Vendor"} • ${device.category.label}',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 11,
                           fontFamily: 'monospace',
-                          color: Colors.grey,
+                          color: AppTheme.textSecondary,
                         ),
                       ),
                       if (device.notes != null && device.notes!.trim().isNotEmpty) ...[
@@ -381,7 +385,7 @@ class _DeviceLibraryDialogState extends State<DeviceLibraryDialog>
                           style: TextStyle(
                             fontSize: 11,
                             fontStyle: FontStyle.italic,
-                            color: Colors.grey.shade400,
+                            color: AppTheme.textSecondary,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -396,7 +400,7 @@ class _DeviceLibraryDialogState extends State<DeviceLibraryDialog>
                   icon: Icon(
                     isVisible ? Icons.visibility : Icons.visibility_off,
                     size: 18,
-                    color: isVisible ? Theme.of(context).colorScheme.primary : Colors.grey,
+                    color: isVisible ? Theme.of(context).colorScheme.primary : AppTheme.textMuted,
                   ),
                   tooltip: isVisible
                       ? 'Visible in filter bar (Click to hide)'
@@ -440,13 +444,13 @@ class _DeviceLibraryDialogState extends State<DeviceLibraryDialog>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.device_unknown, size: 40, color: Colors.grey.shade600),
+            Icon(Icons.device_unknown, size: 40, color: AppTheme.textMuted),
             const SizedBox(height: 10),
             Text(
               _searchQuery.isNotEmpty
                   ? 'No matching unknown devices found.'
                   : 'No unknown devices found in database or scan.',
-              style: TextStyle(color: Colors.grey.shade400, fontSize: 13),
+              style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
             ),
           ],
         ),
@@ -468,12 +472,12 @@ class _DeviceLibraryDialogState extends State<DeviceLibraryDialog>
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
-              color: const Color(0xFF252526),
+              color: AppTheme.surfaceHigh,
               borderRadius: BorderRadius.circular(8),
               border: Border.all(
                 color: isVisible
                     ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.35)
-                    : const Color(0xFF3E3E42),
+                    : AppTheme.borderSubtle,
               ),
             ),
             child: Row(
@@ -483,11 +487,11 @@ class _DeviceLibraryDialogState extends State<DeviceLibraryDialog>
                   radius: 16,
                   backgroundColor: isVisible
                       ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.2)
-                      : Colors.grey.withValues(alpha: 0.2),
+                      : AppTheme.textMuted.withValues(alpha: 0.2),
                   child: Icon(
                     Icons.help_outline,
                     size: 16,
-                    color: isVisible ? Theme.of(context).colorScheme.primary : Colors.grey,
+                    color: isVisible ? Theme.of(context).colorScheme.primary : AppTheme.textMuted,
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -502,10 +506,10 @@ class _DeviceLibraryDialogState extends State<DeviceLibraryDialog>
                           Flexible(
                             child: Text(
                               device.displayName,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontWeight: FontWeight.bold,
                                 fontSize: 13,
-                                color: Colors.white,
+                                color: AppTheme.textPrimary,
                               ),
                               overflow: TextOverflow.ellipsis,
                             ),
@@ -514,14 +518,14 @@ class _DeviceLibraryDialogState extends State<DeviceLibraryDialog>
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                             decoration: BoxDecoration(
-                              color: Colors.amber.withValues(alpha: 0.2),
+                              color: AppTheme.warning.withValues(alpha: 0.2),
                               borderRadius: BorderRadius.circular(4),
                             ),
-                            child: const Text(
+                            child: Text(
                               'No Custom Name',
                               style: TextStyle(
                                 fontSize: 10,
-                                color: Colors.amber,
+                                color: AppTheme.warning,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
@@ -531,14 +535,14 @@ class _DeviceLibraryDialogState extends State<DeviceLibraryDialog>
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                               decoration: BoxDecoration(
-                                color: Colors.grey.withValues(alpha: 0.2),
+                                color: AppTheme.textMuted.withValues(alpha: 0.2),
                                 borderRadius: BorderRadius.circular(4),
                               ),
-                              child: const Text(
+                              child: Text(
                                 'Hidden from Filters',
                                 style: TextStyle(
                                   fontSize: 10,
-                                  color: Colors.grey,
+                                  color: AppTheme.textMuted,
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
@@ -549,14 +553,14 @@ class _DeviceLibraryDialogState extends State<DeviceLibraryDialog>
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                               decoration: BoxDecoration(
-                                color: Colors.blueAccent.withValues(alpha: 0.2),
+                                color: AppTheme.info.withValues(alpha: 0.2),
                                 borderRadius: BorderRadius.circular(4),
                               ),
                               child: Text(
                                 '$count in trace',
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 10,
-                                  color: Colors.blueAccent,
+                                  color: AppTheme.info,
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
@@ -567,10 +571,10 @@ class _DeviceLibraryDialogState extends State<DeviceLibraryDialog>
                       const SizedBox(height: 2),
                       Text(
                         '${device.macAddress ?? "No MAC"} • ${device.ip ?? "No IP"} • ${device.vendor ?? "Unknown Vendor"}',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 11,
                           fontFamily: 'monospace',
-                          color: Colors.grey,
+                          color: AppTheme.textSecondary,
                         ),
                       ),
                     ],
@@ -582,7 +586,7 @@ class _DeviceLibraryDialogState extends State<DeviceLibraryDialog>
                   icon: Icon(
                     isVisible ? Icons.visibility : Icons.visibility_off,
                     size: 18,
-                    color: isVisible ? Theme.of(context).colorScheme.primary : Colors.grey,
+                    color: isVisible ? Theme.of(context).colorScheme.primary : AppTheme.textMuted,
                   ),
                   tooltip: isVisible
                       ? 'Visible in filter bar (Click to hide)'

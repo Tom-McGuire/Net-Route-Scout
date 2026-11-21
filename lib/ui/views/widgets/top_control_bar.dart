@@ -47,10 +47,10 @@ class _TopControlBarState extends State<TopControlBar> {
 
     return Container(
       height: 52,
-      decoration: const BoxDecoration(
-        color: Color(0xFF1E1E1E),
+      decoration: BoxDecoration(
+        color: AppTheme.surface,
         border: Border(
-          bottom: BorderSide(color: Color(0xFF2C2C2C), width: 1),
+          bottom: BorderSide(color: AppTheme.border, width: 1),
         ),
       ),
       child: LayoutBuilder(
@@ -83,7 +83,7 @@ class _TopControlBarState extends State<TopControlBar> {
                                 color: AppTheme.primaryAccent.withValues(alpha: 0.2),
                                 borderRadius: BorderRadius.circular(6),
                               ),
-                              child: const Icon(Icons.alt_route, color: AppTheme.primaryAccent, size: 18),
+                              child: Icon(Icons.alt_route, color: AppTheme.primaryAccent, size: 18),
                             ),
                           ),
                         ),
@@ -94,34 +94,34 @@ class _TopControlBarState extends State<TopControlBar> {
                           children: [
                             Text(
                               AppConstants.appTitle.toUpperCase(),
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 13,
                                 fontWeight: FontWeight.bold,
                                 letterSpacing: 0.8,
-                                color: Colors.white,
+                                color: AppTheme.textPrimary,
                               ),
                             ),
-                            const Text(
+                            Text(
                               AppConstants.appSubtitle,
-                              style: TextStyle(fontSize: 10, color: Colors.white54),
+                              style: TextStyle(fontSize: 10, color: AppTheme.textMuted),
                             ),
                           ],
                         ),
                         const SizedBox(width: 16),
 
                         // ==================== ZONE 2: INTERFACE & TARGET ====================
-                        const Text(
+                        Text(
                           'Interface:',
-                          style: TextStyle(fontSize: 12, color: Colors.grey),
+                          style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
                         ),
                         const SizedBox(width: 6),
                         Container(
                           height: 32,
                           padding: const EdgeInsets.symmetric(horizontal: 8),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF252526),
+                            color: AppTheme.inputFill,
                             borderRadius: BorderRadius.circular(6),
-                            border: Border.all(color: const Color(0xFF3E3E42)),
+                            border: Border.all(color: AppTheme.borderSubtle),
                           ),
                           child: DropdownButtonHideUnderline(
                             child: DropdownButton<NetworkAdapterInfo>(
@@ -130,9 +130,9 @@ class _TopControlBarState extends State<TopControlBar> {
                                   : (vm.adapters.isNotEmpty ? vm.adapters.first : null),
                               isDense: true,
                               icon: const Icon(Icons.arrow_drop_down, size: 18),
-                              style: const TextStyle(fontSize: 12, color: Colors.white),
-                              dropdownColor: const Color(0xFF252526),
-                              hint: const Text('Select Adapter', style: TextStyle(fontSize: 11, color: Colors.white38)),
+                              style: TextStyle(fontSize: 12, color: AppTheme.textPrimary),
+                              dropdownColor: AppTheme.inputFill,
+                              hint: Text('Select Adapter', style: TextStyle(fontSize: 11, color: AppTheme.textMuted)),
                               onChanged: isScanning
                                   ? null
                                   : (adapter) {
@@ -176,18 +176,18 @@ class _TopControlBarState extends State<TopControlBar> {
                         const SizedBox(width: 10),
 
                         // Target Input Field
-                        const Text(
+                        Text(
                           'Target:',
-                          style: TextStyle(fontSize: 12, color: Colors.grey),
+                          style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
                         ),
                         const SizedBox(width: 6),
                         Container(
                           height: 32,
                           width: 190,
                           decoration: BoxDecoration(
-                            color: const Color(0xFF252526),
+                            color: AppTheme.inputFill,
                             borderRadius: BorderRadius.circular(6),
-                            border: Border.all(color: const Color(0xFF3E3E42)),
+                            border: Border.all(color: AppTheme.borderSubtle),
                           ),
                           child: TextField(
                             controller: _targetController,
@@ -204,20 +204,20 @@ class _TopControlBarState extends State<TopControlBar> {
                                 vm.startSweep();
                               }
                             },
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 12,
                               fontFamily: 'monospace',
-                              color: Colors.white,
+                              color: AppTheme.textPrimary,
                             ),
                             decoration: InputDecoration(
                               isDense: true,
                               hintText: 'Target CIDR, IP, or Range...',
-                              hintStyle: const TextStyle(fontSize: 11, color: Colors.white38),
+                              hintStyle: TextStyle(fontSize: 11, color: AppTheme.textMuted),
                               contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                               border: InputBorder.none,
                               enabledBorder: InputBorder.none,
                               focusedBorder: InputBorder.none,
-                              prefixIcon: const Icon(Icons.hub_outlined, size: 14, color: AppTheme.primaryAccent),
+                              prefixIcon: Icon(Icons.hub_outlined, size: 14, color: AppTheme.primaryAccent),
                               suffixIcon: _targetController.text.isNotEmpty && !isScanning
                                   ? IconButton(
                                       icon: const Icon(Icons.clear, size: 14),
@@ -274,16 +274,16 @@ class _TopControlBarState extends State<TopControlBar> {
                           height: 32,
                           padding: const EdgeInsets.symmetric(horizontal: 8),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF252526),
+                            color: AppTheme.inputFill,
                             borderRadius: BorderRadius.circular(6),
-                            border: Border.all(color: const Color(0xFF3E3E42)),
+                            border: Border.all(color: AppTheme.borderSubtle),
                           ),
                           child: DropdownButtonHideUnderline(
                             child: DropdownButton<int>(
                               value: vm.concurrency,
-                              dropdownColor: const Color(0xFF252526),
+                              dropdownColor: AppTheme.inputFill,
                               isDense: true,
-                              style: const TextStyle(fontSize: 11, color: Colors.white70),
+                              style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
                               onChanged: isScanning ? null : (v) => v != null ? vm.setConcurrency(v) : null,
                               items: const [
                                 DropdownMenuItem(value: 2, child: Text('2 Workers')),
@@ -301,16 +301,16 @@ class _TopControlBarState extends State<TopControlBar> {
                           height: 32,
                           padding: const EdgeInsets.symmetric(horizontal: 8),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF252526),
+                            color: AppTheme.inputFill,
                             borderRadius: BorderRadius.circular(6),
-                            border: Border.all(color: const Color(0xFF3E3E42)),
+                            border: Border.all(color: AppTheme.borderSubtle),
                           ),
                           child: DropdownButtonHideUnderline(
                             child: DropdownButton<int>(
                               value: vm.maxHops,
-                              dropdownColor: const Color(0xFF252526),
+                              dropdownColor: AppTheme.inputFill,
                               isDense: true,
-                              style: const TextStyle(fontSize: 11, color: Colors.white70),
+                              style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
                               onChanged: isScanning ? null : (v) => v != null ? vm.setMaxHops(v) : null,
                               items: const [
                                 DropdownMenuItem(value: 8, child: Text('Max 8 Hops')),
@@ -337,8 +337,8 @@ class _TopControlBarState extends State<TopControlBar> {
                           },
                           style: FilledButton.styleFrom(
                             backgroundColor: isScanning
-                                ? const Color(0xFFEF4444) // Active Red
-                                : const Color(0xFF10B981), // Idle Emerald Green (from ARP Scout)
+                                ? AppTheme.error
+                                : AppTheme.success,
                             foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
@@ -369,10 +369,10 @@ class _TopControlBarState extends State<TopControlBar> {
                         // ==================== ZONE 4: ECOSYSTEM & DEMO ====================
                         OutlinedButton.icon(
                           onPressed: () => SnmpDiscoveryDialog.show(context, vm),
-                          icon: const Icon(Icons.sensors, size: 15, color: Color(0xFF06B6D4)),
-                          label: const Text('SNMP Switch', style: TextStyle(fontSize: 11, color: Color(0xFF06B6D4))),
+                          icon: Icon(Icons.sensors, size: 15, color: AppTheme.cyan),
+                          label: Text('SNMP Switch', style: TextStyle(fontSize: 11, color: AppTheme.cyan)),
                           style: OutlinedButton.styleFrom(
-                            side: const BorderSide(color: Color(0xFF06B6D4)),
+                            side: BorderSide(color: AppTheme.cyan),
                             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                           ),
@@ -411,7 +411,7 @@ class _TopControlBarState extends State<TopControlBar> {
                           icon: const Icon(Icons.delete_sweep_outlined, size: 15),
                           label: const Text('Clear', style: TextStyle(fontSize: 11)),
                           style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.red.shade300,
+                            foregroundColor: AppTheme.error,
                             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                           ),
@@ -467,15 +467,15 @@ class _TopControlBarState extends State<TopControlBar> {
                             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
                             decoration: BoxDecoration(
                               borderRadius: BorderRadius.circular(6),
-                              border: Border.all(color: const Color(0xFF3E3E42)),
+                              border: Border.all(color: AppTheme.borderSubtle),
                             ),
-                            child: const Row(
+                            child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.download, size: 15, color: Colors.white70),
-                                SizedBox(width: 6),
-                                Text('Export', style: TextStyle(fontSize: 11, color: Colors.white70)),
-                                Icon(Icons.arrow_drop_down, size: 14, color: Colors.white70),
+                                Icon(Icons.download, size: 15, color: AppTheme.textSecondary),
+                                const SizedBox(width: 6),
+                                Text('Export', style: TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
+                                Icon(Icons.arrow_drop_down, size: 14, color: AppTheme.textSecondary),
                               ],
                             ),
                           ),
@@ -486,9 +486,9 @@ class _TopControlBarState extends State<TopControlBar> {
                         Container(
                           height: 28,
                           decoration: BoxDecoration(
-                            color: const Color(0xFF252526),
+                            color: AppTheme.inputFill,
                             borderRadius: BorderRadius.circular(6),
-                            border: Border.all(color: const Color(0xFF3E3E42)),
+                            border: Border.all(color: AppTheme.borderSubtle),
                           ),
                           child: Row(
                             children: [
@@ -541,17 +541,17 @@ class _TopControlBarState extends State<TopControlBar> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
           decoration: BoxDecoration(
-            color: const Color(0xFF252526),
+            color: AppTheme.inputFill,
             borderRadius: BorderRadius.circular(5),
-            border: Border.all(color: const Color(0xFF3E3E42)),
+            border: Border.all(color: AppTheme.borderSubtle),
           ),
           child: Text(
             label,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 10.5,
               fontFamily: 'monospace',
               fontWeight: FontWeight.w600,
-              color: Colors.white70,
+              color: AppTheme.textSecondary,
             ),
           ),
         ),
@@ -561,7 +561,7 @@ class _TopControlBarState extends State<TopControlBar> {
 
   Widget _buildL2ScanIndicator(TopologyViewModel vm) {
     final isStp = vm.l2ScanPhase == L2ScanPhase.scanningStp;
-    final color = isStp ? const Color(0xFFF59E0B) : const Color(0xFF06B6D4);
+    final color = isStp ? AppTheme.warning : AppTheme.cyan;
     final label = isStp ? 'STP Scan (4s)' : 'Querier Scan (130s)';
     final tooltip = isStp
         ? 'Listening passively for STP/RSTP BPDUs (4s window)'
@@ -609,18 +609,18 @@ class _TopControlBarState extends State<TopControlBar> {
     final hasBaseline = baseline != null;
     final isComparing = vm.compareToBaseline;
 
-    Color accentColor = Colors.white70;
+    Color accentColor = AppTheme.textSecondary;
     String statusText = 'Baseline';
     if (isComparing && diffResult != null) {
       if (diffResult.hasDrift) {
-        accentColor = const Color(0xFFEF4444);
+        accentColor = AppTheme.error;
         statusText = '${diffResult.items.length} Drift';
       } else {
-        accentColor = const Color(0xFF10B981);
+        accentColor = AppTheme.success;
         statusText = 'Match';
       }
     } else if (hasBaseline) {
-      accentColor = const Color(0xFF38BDF8);
+      accentColor = AppTheme.router;
       statusText = 'Compare';
     }
 
@@ -720,15 +720,15 @@ class _TopControlBarState extends State<TopControlBar> {
                   value: 'drawer',
                   child: Text('Toggle Diff Drawer', style: TextStyle(fontSize: 12)),
                 ),
-              const PopupMenuItem(
+              PopupMenuItem(
                 value: 'clear',
-                child: Text('Clear Saved Baseline', style: TextStyle(fontSize: 12, color: Colors.redAccent)),
+                child: Text('Clear Saved Baseline', style: TextStyle(fontSize: 12, color: AppTheme.error)),
               ),
             ],
           ],
-          child: const Padding(
-            padding: EdgeInsets.all(4),
-            child: Icon(Icons.more_vert, size: 16, color: Colors.white54),
+          child: Padding(
+            padding: const EdgeInsets.all(4),
+            child: Icon(Icons.more_vert, size: 16, color: AppTheme.textMuted),
           ),
         ),
       ],
@@ -754,7 +754,7 @@ class _TopControlBarState extends State<TopControlBar> {
           child: Icon(
             icon,
             size: 14,
-            color: isSelected ? Colors.white : Colors.white54,
+            color: isSelected ? AppTheme.textPrimary : AppTheme.textMuted,
           ),
         ),
       ),

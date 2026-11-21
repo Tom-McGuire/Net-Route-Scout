@@ -37,17 +37,17 @@ class NodeCardWidget extends StatelessWidget {
 
     final isGhostMissing = diffStatus == DiffChangeType.missing;
     final borderColor = isGhostMissing
-        ? const Color(0xFFEF4444)
+        ? AppTheme.error
         : diffStatus == DiffChangeType.added
-            ? const Color(0xFF10B981)
+            ? AppTheme.success
             : (diffStatus == DiffChangeType.roleChanged ||
                     diffStatus == DiffChangeType.stpStateChanged ||
                     diffStatus == DiffChangeType.linkDegraded)
-                ? const Color(0xFFF59E0B)
+                ? AppTheme.warning
                 : isSelected || isOnActivePath
                     ? AppTheme.activeHighlight
                     : isSearchMatch
-                        ? const Color(0xFFF59E0B)
+                        ? AppTheme.warning
                         : themeColor.withValues(alpha: node.isUnresponsive ? 0.3 : 0.6);
 
     final borderWidth = isSelected ? 2.5 : ((isOnActivePath || isSearchMatch || isGhostMissing) ? 2.0 : 1.2);
@@ -70,7 +70,7 @@ class NodeCardWidget extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             decoration: BoxDecoration(
               color: node.isUnresponsive
-                  ? const Color(0xFF161A22)
+                  ? AppTheme.switchCardBg
                   : AppTheme.surfaceContainer,
               borderRadius: BorderRadius.circular(8),
               border: Border.all(
@@ -87,7 +87,7 @@ class NodeCardWidget extends StatelessWidget {
                     ]
                   : [
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.3),
+                        color: AppTheme.cardShadow,
                         blurRadius: 4,
                         offset: const Offset(0, 2),
                       ),
@@ -139,16 +139,16 @@ class NodeCardWidget extends StatelessWidget {
                                 child: Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1.5),
                                   decoration: BoxDecoration(
-                                    color: const Color(0xFFF59E0B).withValues(alpha: 0.2),
+                                    color: AppTheme.warning.withValues(alpha: 0.2),
                                     borderRadius: BorderRadius.circular(3),
-                                    border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.55), width: 0.8),
+                                    border: Border.all(color: AppTheme.warning.withValues(alpha: 0.55), width: 0.8),
                                   ),
-                                  child: const Text(
+                                  child: Text(
                                     'ROOT',
                                     style: TextStyle(
                                       fontSize: 7.5,
                                       fontWeight: FontWeight.bold,
-                                      color: Color(0xFFF59E0B),
+                                      color: AppTheme.warning,
                                       letterSpacing: 0.3,
                                     ),
                                   ),
@@ -164,16 +164,16 @@ class NodeCardWidget extends StatelessWidget {
                                 child: Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1.5),
                                   decoration: BoxDecoration(
-                                    color: const Color(0xFF06B6D4).withValues(alpha: 0.2),
+                                    color: AppTheme.cyan.withValues(alpha: 0.2),
                                     borderRadius: BorderRadius.circular(3),
-                                    border: Border.all(color: const Color(0xFF06B6D4).withValues(alpha: 0.55), width: 0.8),
+                                    border: Border.all(color: AppTheme.cyan.withValues(alpha: 0.55), width: 0.8),
                                   ),
-                                  child: const Text(
+                                  child: Text(
                                     'QUERIER',
                                     style: TextStyle(
                                       fontSize: 7.5,
                                       fontWeight: FontWeight.bold,
-                                      color: Color(0xFF06B6D4),
+                                      color: AppTheme.cyan,
                                       letterSpacing: 0.3,
                                     ),
                                   ),
@@ -192,29 +192,29 @@ class NodeCardWidget extends StatelessWidget {
                     if (node.rttMs != null) ...[
                       Text(
                         '${node.rttMs!.toStringAsFixed(1)} ms',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.w600,
                           fontFamily: 'monospace',
-                          color: Colors.white70,
+                          color: AppTheme.textSecondary,
                         ),
                       ),
                     ] else if (node.isUnresponsive) ...[
-                      const Text(
+                      Text(
                         '* * *',
                         style: TextStyle(
                           fontSize: 10,
                           fontFamily: 'monospace',
-                          color: Colors.white38,
+                          color: AppTheme.textMuted,
                         ),
                       ),
                     ] else ...[
                       Text(
                         'Hop ${node.hopDepth}',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 9.5,
                           fontFamily: 'monospace',
-                          color: Colors.white38,
+                          color: AppTheme.textMuted,
                         ),
                       ),
                     ],
@@ -232,10 +232,10 @@ class NodeCardWidget extends StatelessWidget {
                           Expanded(
                             child: Text(
                               node.sharedDeviceName!,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 11.5,
                                 fontWeight: FontWeight.bold,
-                                color: Colors.white,
+                                color: AppTheme.textPrimary,
                               ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
@@ -245,15 +245,15 @@ class NodeCardWidget extends StatelessWidget {
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 3.5, vertical: 0.5),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF10B981).withValues(alpha: 0.2),
+                              color: AppTheme.success.withValues(alpha: 0.2),
                               borderRadius: BorderRadius.circular(2.5),
                             ),
-                            child: const Text(
+                            child: Text(
                               'SHARED',
                               style: TextStyle(
                                 fontSize: 7.5,
                                 fontWeight: FontWeight.bold,
-                                color: Color(0xFF10B981),
+                                color: AppTheme.success,
                               ),
                             ),
                           ),
@@ -262,10 +262,10 @@ class NodeCardWidget extends StatelessWidget {
                       const SizedBox(height: 1),
                       Text(
                         displayIp,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 10.5,
                           fontFamily: 'monospace',
-                          color: Colors.white70,
+                          color: AppTheme.textSecondary,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -273,10 +273,10 @@ class NodeCardWidget extends StatelessWidget {
                     ] else if (node.hostname != null && node.hostname!.isNotEmpty && node.hostname != node.ip) ...[
                       Text(
                         node.hostname!,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
-                          color: Colors.white,
+                          color: AppTheme.textPrimary,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -284,10 +284,10 @@ class NodeCardWidget extends StatelessWidget {
                       const SizedBox(height: 1),
                       Text(
                         displayIp,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 10.5,
                           fontFamily: 'monospace',
-                          color: Colors.white70,
+                          color: AppTheme.textSecondary,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -299,7 +299,7 @@ class NodeCardWidget extends StatelessWidget {
                           fontSize: 12,
                           fontWeight: FontWeight.bold,
                           fontFamily: 'monospace',
-                          color: node.isUnresponsive ? Colors.white38 : Colors.white,
+                          color: node.isUnresponsive ? AppTheme.textMuted : AppTheme.textPrimary,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -314,14 +314,14 @@ class NodeCardWidget extends StatelessWidget {
                 ] else if (node.macAddress != null) ...[
                   Row(
                     children: [
-                      const Icon(Icons.fingerprint, size: 10, color: Colors.white38),
+                      Icon(Icons.fingerprint, size: 10, color: AppTheme.textMuted),
                       const SizedBox(width: 3),
                       Text(
                         node.macAddress!,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 9,
                           fontFamily: 'monospace',
-                          color: Colors.white54,
+                          color: AppTheme.textMuted,
                         ),
                         maxLines: 1,
                       ),
@@ -330,9 +330,9 @@ class NodeCardWidget extends StatelessWidget {
                         Expanded(
                           child: Text(
                             node.vendor!,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 8.5,
-                              color: Colors.white38,
+                              color: AppTheme.textMuted,
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -342,34 +342,34 @@ class NodeCardWidget extends StatelessWidget {
                     ],
                   ),
                 ] else if (node.isUnresponsive) ...[
-                  const Text(
+                  Text(
                     'No ICMP / Hop response',
                     style: TextStyle(
                       fontSize: 8.5,
-                      color: Colors.white30,
+                      color: AppTheme.textMuted,
                     ),
                     maxLines: 1,
                   ),
                 ] else if (node.isLocalHost) ...[
-                  const Text(
+                  Text(
                     'Local Discovery Gateway',
                     style: TextStyle(
                       fontSize: 8.5,
-                      color: Colors.white38,
+                      color: AppTheme.textMuted,
                     ),
                     maxLines: 1,
                   ),
                 ] else if (node.isSwitch) ...[
                   Row(
                     children: [
-                      const Icon(Icons.hub, size: 9, color: Color(0xFF06B6D4)),
+                      Icon(Icons.hub, size: 9, color: AppTheme.cyan),
                       const SizedBox(width: 3),
                       Expanded(
                         child: Text(
                           node.switchModel ?? 'Layer 2 Switch',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 8.5,
-                            color: Color(0xFF06B6D4),
+                            color: AppTheme.cyan,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -380,14 +380,14 @@ class NodeCardWidget extends StatelessWidget {
                 ] else if (node.switchPort != null && node.switchPort!.isNotEmpty) ...[
                   Row(
                     children: [
-                      const Icon(Icons.cable, size: 9, color: Color(0xFF06B6D4)),
+                      Icon(Icons.cable, size: 9, color: AppTheme.cyan),
                       const SizedBox(width: 3),
                       Expanded(
                         child: Text(
                           'Port: ${node.switchPort!}',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 8.5,
-                            color: Color(0xFF06B6D4),
+                            color: AppTheme.cyan,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -398,13 +398,13 @@ class NodeCardWidget extends StatelessWidget {
                 ] else if (node.associatedTargets.length > 1) ...[
                   Row(
                     children: [
-                      const Icon(Icons.alt_route, size: 9, color: AppTheme.router),
+                      Icon(Icons.alt_route, size: 9, color: AppTheme.router),
                       const SizedBox(width: 3),
                       Text(
                         'Routes ${node.associatedTargets.length} targets',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 8.5,
-                          color: Colors.white54,
+                          color: AppTheme.textMuted,
                         ),
                         maxLines: 1,
                       ),
@@ -413,9 +413,9 @@ class NodeCardWidget extends StatelessWidget {
                 ] else ...[
                   Text(
                     'Hop ${node.hopDepth} Gateway',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 8.5,
-                      color: Colors.white30,
+                      color: AppTheme.textMuted,
                     ),
                     maxLines: 1,
                   ),
@@ -432,11 +432,11 @@ class NodeCardWidget extends StatelessWidget {
     final pct = poe.utilizationPercent;
     final Color barColor;
     if (poe.isCriticalCapacity || poe.hasPortFaults) {
-      barColor = const Color(0xFFEF4444);
+      barColor = AppTheme.error;
     } else if (pct >= 75.0) {
-      barColor = const Color(0xFFF59E0B);
+      barColor = AppTheme.warning;
     } else {
-      barColor = const Color(0xFF06B6D4);
+      barColor = AppTheme.cyan;
     }
 
     return Column(
@@ -468,7 +468,7 @@ class NodeCardWidget extends StatelessWidget {
           child: LinearProgressIndicator(
             value: (pct / 100.0).clamp(0.0, 1.0),
             minHeight: 3,
-            backgroundColor: Colors.white12,
+            backgroundColor: AppTheme.border,
             valueColor: AlwaysStoppedAnimation<Color>(barColor),
           ),
         ),
@@ -478,9 +478,9 @@ class NodeCardWidget extends StatelessWidget {
 
   Widget _buildDiffBadge(DiffChangeType status) {
     final (String label, Color color) = switch (status) {
-      DiffChangeType.missing => ('MISSING', const Color(0xFFEF4444)),
-      DiffChangeType.added => ('+ NEW', const Color(0xFF10B981)),
-      _ => ('DRIFT', const Color(0xFFF59E0B)),
+      DiffChangeType.missing => ('MISSING', AppTheme.error),
+      DiffChangeType.added => ('+ NEW', AppTheme.success),
+      _ => ('DRIFT', AppTheme.warning),
     };
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1.5),
@@ -503,7 +503,7 @@ class NodeCardWidget extends StatelessWidget {
 
   static Color _getNodeColor(NetworkNode node) {
     if (node.isLocalHost) return AppTheme.hostLocal;
-    if (node.isSwitch) return const Color(0xFF06B6D4);
+    if (node.isSwitch) return AppTheme.cyan;
     if (node.isUnresponsive) return AppTheme.unresponsive;
     if (node.isTarget) return AppTheme.target;
     return AppTheme.router;

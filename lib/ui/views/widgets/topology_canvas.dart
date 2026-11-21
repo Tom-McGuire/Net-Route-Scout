@@ -172,7 +172,7 @@ class _TopologyCanvasState extends State<TopologyCanvas> {
                 // Background subtle dot grid
                 CustomPaint(
                   size: Size(canvasWidth, canvasHeight),
-                  painter: _GridBackgroundPainter(),
+                  painter: _GridBackgroundPainter(isDark: AppTheme.isDark),
                 ),
 
                 // Connecting Edges (Bezier curves with arrows)
@@ -187,6 +187,7 @@ class _TopologyCanvasState extends State<TopologyCanvas> {
                     hasSelection: hasSelection,
                     cardWidth: cardWidth,
                     cardHeight: cardHeight,
+                    isDark: AppTheme.isDark,
                   ),
                 ),
 
@@ -239,12 +240,12 @@ class _TopologyCanvasState extends State<TopologyCanvas> {
           bottom: 20,
           child: Container(
             decoration: BoxDecoration(
-              color: AppTheme.surfaceContainerHighest.withValues(alpha: 0.9),
+              color: AppTheme.surface.withValues(alpha: 0.95),
               borderRadius: BorderRadius.circular(8),
               border: Border.all(color: AppTheme.border),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.4),
+                  color: AppTheme.cardShadow,
                   blurRadius: 8,
                 ),
               ],
@@ -285,16 +286,16 @@ class _TopologyCanvasState extends State<TopologyCanvas> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
-                color: AppTheme.surfaceContainer.withValues(alpha: 0.95),
+                color: AppTheme.surface.withValues(alpha: 0.95),
                 borderRadius: BorderRadius.circular(6),
                 border: Border.all(
                   color: hasDeviceFilter
-                      ? const Color(0xFFF59E0B).withValues(alpha: 0.7)
+                      ? AppTheme.warning.withValues(alpha: 0.7)
                       : AppTheme.activeHighlight.withValues(alpha: 0.6),
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: (hasDeviceFilter ? const Color(0xFFF59E0B) : AppTheme.activeHighlight)
+                    color: (hasDeviceFilter ? AppTheme.warning : AppTheme.activeHighlight)
                         .withValues(alpha: 0.2),
                     blurRadius: 8,
                   ),
@@ -307,7 +308,7 @@ class _TopologyCanvasState extends State<TopologyCanvas> {
                     width: 8,
                     height: 8,
                     decoration: BoxDecoration(
-                      color: hasDeviceFilter ? const Color(0xFFF59E0B) : AppTheme.activeHighlight,
+                      color: hasDeviceFilter ? AppTheme.warning : AppTheme.activeHighlight,
                       shape: BoxShape.circle,
                     ),
                   ),
@@ -318,16 +319,16 @@ class _TopologyCanvasState extends State<TopologyCanvas> {
                             ? 'Multi-Device Filter (${vm.selectedDeviceKeys.length} devices) • Common Path: ${vm.commonPathNodeIds.length} hops'
                             : 'Device Path Filter (${vm.selectedDeviceKeys.length} selected)')
                         : 'Active Path Highlight: ${vm.selectedNode?.displayName ?? ""}',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.bold,
-                      color: Colors.white,
+                      color: AppTheme.textPrimary,
                     ),
                   ),
                   const SizedBox(width: 8),
                   InkWell(
                     onTap: hasDeviceFilter ? vm.clearDeviceFilters : vm.clearSelection,
-                    child: const Icon(Icons.close, size: 14, color: Colors.white54),
+                    child: Icon(Icons.close, size: 14, color: AppTheme.textMuted),
                   ),
                 ],
               ),
@@ -348,28 +349,28 @@ class _TopologyCanvasState extends State<TopologyCanvas> {
               color: AppTheme.primaryAccent.withValues(alpha: 0.1),
               shape: BoxShape.circle,
             ),
-            child: const Icon(
+            child: Icon(
               Icons.radar,
               size: 56,
               color: AppTheme.primaryAccent,
             ),
           ),
           const SizedBox(height: 18),
-          const Text(
+          Text(
             'No Network Routes Traced',
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.bold,
-              color: Colors.white,
+              color: AppTheme.textPrimary,
             ),
           ),
           const SizedBox(height: 8),
-          const Text(
+          Text(
             'Enter a CIDR subnet (e.g. 192.168.1.0/24) or target IP above and click Start Sweep,\nor load the demo enterprise network.',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 12,
-              color: Colors.white60,
+              color: AppTheme.textSecondary,
               height: 1.4,
             ),
           ),
@@ -383,6 +384,7 @@ class _TopologyCanvasState extends State<TopologyCanvas> {
                 label: const Text('Load Demo Enterprise Network'),
                 style: FilledButton.styleFrom(
                   backgroundColor: AppTheme.primaryAccent,
+                  foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 ),
               ),
@@ -395,10 +397,14 @@ class _TopologyCanvasState extends State<TopologyCanvas> {
 }
 
 class _GridBackgroundPainter extends CustomPainter {
+  final bool isDark;
+
+  _GridBackgroundPainter({required this.isDark});
+
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = const Color(0xFF22262E)
+      ..color = AppTheme.canvasGridDot
       ..strokeWidth = 1.0;
 
     const step = 40.0;
@@ -410,7 +416,8 @@ class _GridBackgroundPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _GridBackgroundPainter oldDelegate) =>
+      oldDelegate.isDark != isDark;
 }
 
 class _TopologyEdgesPainter extends CustomPainter {
@@ -422,6 +429,7 @@ class _TopologyEdgesPainter extends CustomPainter {
   final bool hasSelection;
   final double cardWidth;
   final double cardHeight;
+  final bool isDark;
 
   _TopologyEdgesPainter({
     required this.edges,
@@ -432,6 +440,7 @@ class _TopologyEdgesPainter extends CustomPainter {
     required this.hasSelection,
     required this.cardWidth,
     required this.cardHeight,
+    required this.isDark,
   });
 
   @override
@@ -475,7 +484,7 @@ class _TopologyEdgesPainter extends CustomPainter {
 
       if (isMissingDiff || edge.stpState == LinkStpState.blocking) {
         // STP Ring Split or Missing Baseline Edge: dashed crimson/amber line with midpoint pill
-        const splitColor = Color(0xFFEF4444);
+        final splitColor = AppTheme.error;
         paint
           ..color = isDimmed ? splitColor.withValues(alpha: 0.25) : splitColor.withValues(alpha: 0.85)
           ..strokeWidth = 2.2;
@@ -483,7 +492,7 @@ class _TopologyEdgesPainter extends CustomPainter {
         _drawDashedPath(canvas, path, paint, dashWidth: 7, dashSpace: 5);
       } else if (edge.hasActiveErrors || edge.isDegradedSpeed || edge.isHalfDuplex || edge.hasVlanMismatch) {
         // Amber/warning edge highlight for degraded trunk speed, CRC errors, or VLAN mismatch
-        const warnColor = Color(0xFFF59E0B);
+        final warnColor = AppTheme.warning;
         paint
           ..color = isDimmed ? warnColor.withValues(alpha: 0.25) : warnColor.withValues(alpha: 0.9)
           ..strokeWidth = isDimmed ? 1.5 : 2.6;
@@ -502,7 +511,7 @@ class _TopologyEdgesPainter extends CustomPainter {
         }
       } else if (isCommon) {
         // Glowing prominent common network path edge (Amber)
-        const amberColor = Color(0xFFF59E0B);
+        final amberColor = AppTheme.warning;
         paint
           ..color = amberColor
           ..strokeWidth = 3.4;
@@ -536,8 +545,8 @@ class _TopologyEdgesPainter extends CustomPainter {
       } else {
         paint
           ..color = isDimmed
-              ? const Color(0xFF2E3440).withValues(alpha: 0.3)
-              : const Color(0xFF38BDF8).withValues(alpha: 0.4)
+              ? AppTheme.border.withValues(alpha: 0.45)
+              : AppTheme.router.withValues(alpha: isDark ? 0.4 : 0.55)
           ..strokeWidth = isDimmed ? 1.0 : 1.5;
 
         canvas.drawPath(path, paint);
@@ -546,7 +555,7 @@ class _TopologyEdgesPainter extends CustomPainter {
             canvas,
             start,
             end,
-            const Color(0xFF38BDF8).withValues(alpha: 0.6),
+            AppTheme.router.withValues(alpha: isDark ? 0.6 : 0.75),
             6.5,
             2.0,
             reverse: reverseFlow,
@@ -560,36 +569,51 @@ class _TopologyEdgesPainter extends CustomPainter {
         if (isMissingDiff) {
           badges.add((
             text: 'MISSING LINK',
-            textColor: const Color(0xFFFCA5A5),
-            bg: const Color(0xFF1F1418),
-            border: const Color(0xFFEF4444).withValues(alpha: 0.85),
+            textColor: isDark ? const Color(0xFFFCA5A5) : AppTheme.error,
+            bg: Color.alphaBlend(
+              AppTheme.error.withValues(alpha: isDark ? 0.2 : 0.08),
+              AppTheme.surface,
+            ),
+            border: AppTheme.error.withValues(alpha: 0.85),
           ));
         }
         if (edge.stpState == LinkStpState.blocking) {
           badges.add((
             text: '✂ STP SPLIT (BLK)',
-            textColor: const Color(0xFFFCA5A5),
-            bg: const Color(0xFF1F1418),
-            border: const Color(0xFFEF4444).withValues(alpha: 0.85),
+            textColor: isDark ? const Color(0xFFFCA5A5) : AppTheme.error,
+            bg: Color.alphaBlend(
+              AppTheme.error.withValues(alpha: isDark ? 0.2 : 0.08),
+              AppTheme.surface,
+            ),
+            border: AppTheme.error.withValues(alpha: 0.85),
           ));
         }
         if (edge.hasVlanMismatch) {
           badges.add((
             text: '⚠ VLAN MISMATCH',
-            textColor: const Color(0xFFFDE68A),
-            bg: const Color(0xFF231C10),
-            border: const Color(0xFFF59E0B).withValues(alpha: 0.85),
+            textColor: isDark ? const Color(0xFFFDE68A) : AppTheme.warning,
+            bg: Color.alphaBlend(
+              AppTheme.warning.withValues(alpha: isDark ? 0.2 : 0.08),
+              AppTheme.surface,
+            ),
+            border: AppTheme.warning.withValues(alpha: 0.85),
           ));
         }
         final speedLabel = edge.speedBadgeLabel;
         if (speedLabel != null) {
           final isWarnSpeed = edge.isDegradedSpeed || edge.isHalfDuplex || edge.hasActiveErrors;
           final errSuffix = edge.hasActiveErrors ? ' (+${edge.inErrorsDelta} ERR)' : '';
+          final badgeColor = isWarnSpeed ? AppTheme.warning : AppTheme.success;
           badges.add((
             text: '$speedLabel$errSuffix',
-            textColor: isWarnSpeed ? const Color(0xFFFDE68A) : const Color(0xFF6EE7B7),
-            bg: isWarnSpeed ? const Color(0xFF231C10) : const Color(0xFF0F201B),
-            border: (isWarnSpeed ? const Color(0xFFF59E0B) : const Color(0xFF10B981)).withValues(alpha: 0.7),
+            textColor: isDark
+                ? (isWarnSpeed ? const Color(0xFFFDE68A) : const Color(0xFF6EE7B7))
+                : badgeColor,
+            bg: Color.alphaBlend(
+              badgeColor.withValues(alpha: isDark ? 0.18 : 0.08),
+              AppTheme.surface,
+            ),
+            border: badgeColor.withValues(alpha: 0.75),
           ));
         }
 
@@ -724,9 +748,11 @@ class _TopologyEdgesPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _TopologyEdgesPainter oldDelegate) {
-    return oldDelegate.edges != edges ||
+    return oldDelegate.isDark != isDark ||
+        oldDelegate.edges != edges ||
         oldDelegate.hasSelection != hasSelection ||
         oldDelegate.activeEdgeIds != activeEdgeIds ||
+        oldDelegate.commonEdgeIds != commonEdgeIds ||
         oldDelegate.edgeDiffStatuses != edgeDiffStatuses;
   }
 }

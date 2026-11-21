@@ -730,7 +730,7 @@ class TopologyViewModel extends ChangeNotifier {
           SnackBar(
             content: Text('Triggered ARP Scout scan on $subnet'),
             duration: const Duration(seconds: 2),
-            backgroundColor: const Color(0xFF10B981),
+            backgroundColor: AppTheme.success,
           ),
         );
       }
@@ -745,7 +745,7 @@ class TopologyViewModel extends ChangeNotifier {
           SnackBar(
             content: Text('Could not launch ARP Scout: $e'),
             duration: const Duration(seconds: 3),
-            backgroundColor: const Color(0xFFEF4444),
+            backgroundColor: AppTheme.error,
           ),
         );
       }
@@ -759,34 +759,34 @@ class TopologyViewModel extends ChangeNotifier {
         backgroundColor: AppTheme.surfaceContainerHigh,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
-          side: const BorderSide(color: AppTheme.border),
+          side: BorderSide(color: AppTheme.border),
         ),
-        title: const Row(
+        title: Row(
           children: [
             Icon(Icons.radar, color: AppTheme.primaryAccent, size: 22),
-            SizedBox(width: 10),
-            Text('Locate ARP Scout', style: TextStyle(color: Colors.white, fontSize: 16)),
+            const SizedBox(width: 10),
+            Text('Locate ARP Scout', style: TextStyle(color: AppTheme.textPrimary, fontSize: 16)),
           ],
         ),
-        content: const Column(
+        content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               'Net Route Scout could not automatically locate the ARP Scout application on this system.',
-              style: TextStyle(color: Colors.white70, fontSize: 13),
+              style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
             ),
-            SizedBox(height: 10),
+            const SizedBox(height: 10),
             Text(
               'Please locate the ARP Scout executable (arp_scout.exe on Windows, arp_scout on Linux/macOS). Net Route Scout will remember this location for all future launches.',
-              style: TextStyle(color: Colors.white60, fontSize: 12),
+              style: TextStyle(color: AppTheme.textMuted, fontSize: 12),
             ),
           ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Cancel', style: TextStyle(color: Colors.white60)),
+            child: Text('Cancel', style: TextStyle(color: AppTheme.textSecondary)),
           ),
           ElevatedButton.icon(
             style: ElevatedButton.styleFrom(
@@ -809,7 +809,7 @@ class TopologyViewModel extends ChangeNotifier {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           content: Text('Saved ARP Scout path: $pickedPath'),
-                          backgroundColor: const Color(0xFF10B981),
+                          backgroundColor: AppTheme.success,
                           duration: const Duration(seconds: 2),
                         ),
                       );
@@ -826,7 +826,7 @@ class TopologyViewModel extends ChangeNotifier {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text('Error selecting ARP Scout: $err'),
-                      backgroundColor: const Color(0xFFEF4444),
+                      backgroundColor: AppTheme.error,
                     ),
                   );
                 }

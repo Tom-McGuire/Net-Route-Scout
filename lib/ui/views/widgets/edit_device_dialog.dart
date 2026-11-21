@@ -96,10 +96,10 @@ class _EditDeviceDialogState extends State<EditDeviceDialog> {
   @override
   Widget build(BuildContext context) {
     return Dialog(
-      backgroundColor: AppTheme.surfaceContainer,
+      backgroundColor: AppTheme.surface,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(10),
-        side: const BorderSide(color: AppTheme.border),
+        side: BorderSide(color: AppTheme.border),
       ),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 480),
@@ -118,19 +118,19 @@ class _EditDeviceDialogState extends State<EditDeviceDialog> {
                       color: AppTheme.primaryAccent.withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(6),
                     ),
-                    child: const Icon(Icons.edit_note, color: AppTheme.primaryAccent, size: 20),
+                    child: Icon(Icons.edit_note, color: AppTheme.primaryAccent, size: 20),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
+                        Text(
                           'Edit Shared Device Identity',
                           style: TextStyle(
                             fontSize: 15,
                             fontWeight: FontWeight.bold,
-                            color: Colors.white,
+                            color: AppTheme.textPrimary,
                           ),
                         ),
                         Text(
@@ -141,10 +141,10 @@ class _EditDeviceDialogState extends State<EditDeviceDialog> {
                                   : (widget.macAddress != null && widget.macAddress!.isNotEmpty
                                       ? 'MAC: ${widget.macAddress}'
                                       : 'Shared Device Library')),
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 11,
                             fontFamily: 'monospace',
-                            color: Colors.white54,
+                            color: AppTheme.textMuted,
                           ),
                         ),
                       ],
@@ -162,12 +162,12 @@ class _EditDeviceDialogState extends State<EditDeviceDialog> {
               const SizedBox(height: 16),
 
               // Friendly Name
-              const Text('Device Friendly Name', style: TextStyle(fontSize: 11, color: Colors.white70)),
+              Text('Device Friendly Name', style: TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
               const SizedBox(height: 5),
               TextField(
                 controller: _nameController,
                 autofocus: true,
-                style: const TextStyle(fontSize: 13, color: Colors.white),
+                style: TextStyle(fontSize: 13, color: AppTheme.textPrimary),
                 decoration: const InputDecoration(
                   hintText: 'e.g. Core Switch, CEO MacBook, Office Printer',
                 ),
@@ -175,11 +175,11 @@ class _EditDeviceDialogState extends State<EditDeviceDialog> {
               const SizedBox(height: 12),
 
               // MAC Address
-              const Text('MAC Address (Hardware Identity Key)', style: TextStyle(fontSize: 11, color: Colors.white70)),
+              Text('MAC Address (Hardware Identity Key)', style: TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
               const SizedBox(height: 5),
               TextField(
                 controller: _macController,
-                style: const TextStyle(fontSize: 12, fontFamily: 'monospace', color: Colors.white),
+                style: TextStyle(fontSize: 12, fontFamily: 'monospace', color: AppTheme.textPrimary),
                 decoration: const InputDecoration(
                   hintText: 'XX:XX:XX:XX:XX:XX',
                 ),
@@ -187,7 +187,7 @@ class _EditDeviceDialogState extends State<EditDeviceDialog> {
               const SizedBox(height: 12),
 
               // Device Category Dropdown
-              const Text('Device Category', style: TextStyle(fontSize: 11, color: Colors.white70)),
+              Text('Device Category', style: TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
               const SizedBox(height: 5),
               Container(
                 height: 38,
@@ -195,15 +195,15 @@ class _EditDeviceDialogState extends State<EditDeviceDialog> {
                 decoration: BoxDecoration(
                   color: AppTheme.inputFill,
                   borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: const Color(0xFF3E3E42)),
+                  border: Border.all(color: AppTheme.borderSubtle),
                 ),
                 child: DropdownButtonHideUnderline(
                   child: DropdownButton<String>(
                     isExpanded: true,
                     value: _selectedCategory,
-                    dropdownColor: AppTheme.surfaceContainerHighest,
-                    hint: const Text('Select Category', style: TextStyle(fontSize: 12, color: Colors.white38)),
-                    style: const TextStyle(fontSize: 12, color: Colors.white),
+                    dropdownColor: AppTheme.surfaceElevated,
+                    hint: Text('Select Category', style: TextStyle(fontSize: 12, color: AppTheme.textMuted)),
+                    style: TextStyle(fontSize: 12, color: AppTheme.textPrimary),
                     onChanged: (val) {
                       setState(() {
                         _selectedCategory = val;
@@ -227,11 +227,11 @@ class _EditDeviceDialogState extends State<EditDeviceDialog> {
               const SizedBox(height: 12),
 
               // Hardware Vendor
-              const Text('Hardware Vendor / OUI', style: TextStyle(fontSize: 11, color: Colors.white70)),
+              Text('Hardware Vendor / OUI', style: TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
               const SizedBox(height: 5),
               TextField(
                 controller: _vendorController,
-                style: const TextStyle(fontSize: 12, color: Colors.white),
+                style: TextStyle(fontSize: 12, color: AppTheme.textPrimary),
                 decoration: const InputDecoration(
                   hintText: 'e.g. Cisco Systems, Apple, Lenovo',
                 ),
@@ -239,12 +239,12 @@ class _EditDeviceDialogState extends State<EditDeviceDialog> {
               const SizedBox(height: 12),
 
               // Notes
-              const Text('Notes', style: TextStyle(fontSize: 11, color: Colors.white70)),
+              Text('Notes', style: TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
               const SizedBox(height: 5),
               TextField(
                 controller: _notesController,
                 maxLines: 2,
-                style: const TextStyle(fontSize: 12, color: Colors.white),
+                style: TextStyle(fontSize: 12, color: AppTheme.textPrimary),
                 decoration: const InputDecoration(
                   hintText: 'Physical location, connected switchport, purpose...',
                 ),
@@ -260,7 +260,7 @@ class _EditDeviceDialogState extends State<EditDeviceDialog> {
                   OutlinedButton(
                     onPressed: () => Navigator.of(context).pop(),
                     style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: Color(0xFF4A4A4A)),
+                      side: BorderSide(color: AppTheme.borderSubtle),
                     ),
                     child: const Text('Cancel'),
                   ),
@@ -298,6 +298,7 @@ class _EditDeviceDialogState extends State<EditDeviceDialog> {
                     label: const Text('Save to Shared Database'),
                     style: FilledButton.styleFrom(
                       backgroundColor: AppTheme.primaryAccent,
+                      foregroundColor: Colors.white,
                     ),
                   ),
                 ],

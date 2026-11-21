@@ -19,7 +19,7 @@ class DetailInspectorPanel extends StatelessWidget {
     final selectedNode = vm.selectedNode;
 
     return Container(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: AppTheme.surfaceContainer,
         border: Border(
           top: BorderSide(color: AppTheme.border, width: 1),
@@ -66,7 +66,7 @@ class DetailInspectorPanel extends StatelessWidget {
                         color: AppTheme.activeHighlight.withValues(alpha: 0.18),
                         borderRadius: BorderRadius.circular(6),
                       ),
-                      child: const Icon(Icons.hub, size: 16, color: AppTheme.activeHighlight),
+                      child: Icon(Icons.hub, size: 16, color: AppTheme.activeHighlight),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
@@ -78,10 +78,10 @@ class DetailInspectorPanel extends StatelessWidget {
                               Flexible(
                                 child: Text(
                                   node.displayName,
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontSize: 13,
                                     fontWeight: FontWeight.bold,
-                                    color: Colors.white,
+                                    color: AppTheme.textPrimary,
                                   ),
                                   overflow: TextOverflow.ellipsis,
                                 ),
@@ -91,15 +91,15 @@ class DetailInspectorPanel extends StatelessWidget {
                                 Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                                   decoration: BoxDecoration(
-                                    color: const Color(0xFF10B981).withValues(alpha: 0.2),
+                                    color: AppTheme.success.withValues(alpha: 0.2),
                                     borderRadius: BorderRadius.circular(3),
                                   ),
-                                  child: const Text(
+                                  child: Text(
                                     'SHARED DB',
                                     style: TextStyle(
                                       fontSize: 8.5,
                                       fontWeight: FontWeight.bold,
-                                      color: Color(0xFF10B981),
+                                      color: AppTheme.success,
                                     ),
                                   ),
                                 ),
@@ -108,10 +108,10 @@ class DetailInspectorPanel extends StatelessWidget {
                           ),
                           Text(
                             node.ip,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 11,
                               fontFamily: 'monospace',
-                              color: Colors.white60,
+                              color: AppTheme.textSecondary,
                             ),
                           ),
                         ],
@@ -119,7 +119,7 @@ class DetailInspectorPanel extends StatelessWidget {
                     ),
                     // Edit Device Button
                     IconButton(
-                      icon: const Icon(Icons.edit, size: 16, color: AppTheme.primaryAccent),
+                      icon: Icon(Icons.edit, size: 16, color: AppTheme.primaryAccent),
                       tooltip: 'Edit Device Identity in Shared Database',
                       splashRadius: 16,
                       onPressed: () {
@@ -134,7 +134,7 @@ class DetailInspectorPanel extends StatelessWidget {
                     ),
                     // Close Button
                     IconButton(
-                      icon: const Icon(Icons.close, size: 16, color: Colors.white54),
+                      icon: Icon(Icons.close, size: 16, color: AppTheme.textMuted),
                       tooltip: 'Deselect',
                       splashRadius: 16,
                       onPressed: vm.clearSelection,
@@ -198,9 +198,9 @@ class DetailInspectorPanel extends StatelessWidget {
                 ],
                 if (node.stpPorts.isNotEmpty) ...[
                   const SizedBox(height: 6),
-                  const Text(
+                  Text(
                     'STP PORTS',
-                    style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: Colors.white54, letterSpacing: 0.6),
+                    style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: AppTheme.textMuted, letterSpacing: 0.6),
                   ),
                   const SizedBox(height: 4),
                   Wrap(
@@ -210,8 +210,8 @@ class DetailInspectorPanel extends StatelessWidget {
                       final isBlk = p.isBlocking;
                       final isFwd = p.isForwarding;
                       final badgeColor = isBlk
-                          ? const Color(0xFFEF4444)
-                          : (isFwd ? const Color(0xFF10B981) : Colors.grey);
+                          ? AppTheme.error
+                          : (isFwd ? AppTheme.success : AppTheme.unresponsive);
                       return Container(
                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
@@ -243,18 +243,18 @@ class DetailInspectorPanel extends StatelessWidget {
                         height: 28,
                         child: OutlinedButton.icon(
                           onPressed: () => vm.launchArpScoutForNode(context, node),
-                          icon: const Icon(Icons.radar, size: 14, color: AppTheme.primaryAccent),
+                          icon: Icon(Icons.radar, size: 14, color: AppTheme.primaryAccent),
                           label: Text(
                             'Scan Subnet in ARP Scout ($subnet)',
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w600,
-                              color: Colors.white,
+                              color: AppTheme.textPrimary,
                             ),
                             overflow: TextOverflow.ellipsis,
                           ),
                           style: OutlinedButton.styleFrom(
-                            side: const BorderSide(color: AppTheme.primaryAccent, width: 1),
+                            side: BorderSide(color: AppTheme.primaryAccent, width: 1),
                             padding: const EdgeInsets.symmetric(horizontal: 8),
                             visualDensity: VisualDensity.compact,
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
@@ -282,14 +282,14 @@ class DetailInspectorPanel extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    const Icon(Icons.alt_route, size: 14, color: AppTheme.activeHighlight),
+                    Icon(Icons.alt_route, size: 14, color: AppTheme.activeHighlight),
                     const SizedBox(width: 6),
-                    const Text(
+                    Text(
                       'PATH TRAVERSAL HIERARCHY',
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.bold,
-                        color: Colors.white70,
+                        color: AppTheme.textSecondary,
                         letterSpacing: 0.5,
                       ),
                     ),
@@ -321,8 +321,8 @@ class DetailInspectorPanel extends StatelessWidget {
                       for (int i = 0; i < breadcrumbs.length; i++) ...[
                         _buildBreadcrumbNode(breadcrumbs[i], isLast: i == breadcrumbs.length - 1),
                         if (i < breadcrumbs.length - 1)
-                          const Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 6),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 6),
                             child: Icon(Icons.arrow_forward, size: 13, color: AppTheme.activeHighlight),
                           ),
                       ],
@@ -335,14 +335,14 @@ class DetailInspectorPanel extends StatelessWidget {
                 // Section 3: Traversing Routes List (if router has multiple targets)
                 Row(
                   children: [
-                    const Icon(Icons.fork_right, size: 14, color: AppTheme.router),
+                    Icon(Icons.fork_right, size: 14, color: AppTheme.router),
                     const SizedBox(width: 6),
                     Text(
                       'TRAVERSING TARGETS (${routedTargets.length})',
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.bold,
-                        color: Colors.white70,
+                        color: AppTheme.textSecondary,
                         letterSpacing: 0.5,
                       ),
                     ),
@@ -351,7 +351,7 @@ class DetailInspectorPanel extends StatelessWidget {
                 const SizedBox(height: 6),
                 Expanded(
                   child: routedTargets.isEmpty
-                      ? const Text('Terminal endpoint; no downstream routes.', style: TextStyle(color: Colors.white38, fontSize: 11))
+                      ? Text('Terminal endpoint; no downstream routes.', style: TextStyle(color: AppTheme.textMuted, fontSize: 11))
                       : Wrap(
                           spacing: 6,
                           runSpacing: 4,
@@ -367,10 +367,10 @@ class DetailInspectorPanel extends StatelessWidget {
                               ),
                               child: Text(
                                 label,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 10.5,
                                   fontFamily: 'monospace',
-                                  color: Colors.white70,
+                                  color: AppTheme.textSecondary,
                                 ),
                               ),
                             );
@@ -395,9 +395,9 @@ class DetailInspectorPanel extends StatelessWidget {
 
     return [
       const SizedBox(height: 8),
-      const Text(
+      Text(
         'POE BUDGET & PORT DRAW',
-        style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: Colors.white54, letterSpacing: 0.6),
+        style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: AppTheme.textMuted, letterSpacing: 0.6),
       ),
       const SizedBox(height: 4),
       _buildMetaRow(
@@ -412,10 +412,10 @@ class DetailInspectorPanel extends StatelessWidget {
           runSpacing: 4,
           children: poe.ports.map((p) {
             final color = p.isFault
-                ? const Color(0xFFEF4444)
+                ? AppTheme.error
                 : (p.state == PoePortState.deliveringPower
-                    ? const Color(0xFF06B6D4)
-                    : Colors.white54);
+                    ? AppTheme.cyan
+                    : AppTheme.textMuted);
             final child = connectedChildren.where((c) =>
                 c.switchPort!.toLowerCase().contains(p.interfaceName.toLowerCase()) ||
                 c.switchPort!.contains('Port ${p.portIndex}')).firstOrNull;
@@ -444,9 +444,9 @@ class DetailInspectorPanel extends StatelessWidget {
     if (node.interfaceHealth.isEmpty) return const [];
     return [
       const SizedBox(height: 8),
-      const Text(
+      Text(
         'INTERFACE SPEED & ERROR COUNTERS',
-        style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: Colors.white54, letterSpacing: 0.6),
+        style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: AppTheme.textMuted, letterSpacing: 0.6),
       ),
       const SizedBox(height: 4),
       Wrap(
@@ -457,7 +457,7 @@ class DetailInspectorPanel extends StatelessWidget {
               h.isHalfDuplex ||
               h.hasHistoricalErrors ||
               h.hasActiveErrors;
-          final color = isWarn ? const Color(0xFFF59E0B) : const Color(0xFF10B981);
+          final color = isWarn ? AppTheme.warning : AppTheme.success;
           final duplexShort = h.duplex == DuplexMode.halfDuplex
               ? ' HDX'
               : (h.duplex == DuplexMode.fullDuplex ? ' FDX' : '');
@@ -494,9 +494,9 @@ class DetailInspectorPanel extends StatelessWidget {
 
     return [
       const SizedBox(height: 8),
-      const Text(
+      Text(
         'VLAN TRUNK & PVID STATUS',
-        style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: Colors.white54, letterSpacing: 0.6),
+        style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: AppTheme.textMuted, letterSpacing: 0.6),
       ),
       const SizedBox(height: 4),
       if (node.portVlans.isNotEmpty)
@@ -508,13 +508,13 @@ class DetailInspectorPanel extends StatelessWidget {
             return Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
-                color: const Color(0xFF38BDF8).withValues(alpha: 0.12),
+                color: AppTheme.router.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(4),
-                border: Border.all(color: const Color(0xFF38BDF8).withValues(alpha: 0.35)),
+                border: Border.all(color: AppTheme.router.withValues(alpha: 0.35)),
               ),
               child: Text(
                 '${p.interfaceName}: PVID ${p.nativePvid} | [${vlans.join(',')}]',
-                style: const TextStyle(fontSize: 9.5, color: Color(0xFF7DD3FC), fontFamily: 'monospace'),
+                style: TextStyle(fontSize: 9.5, color: AppTheme.router, fontFamily: 'monospace'),
               ),
             );
           }).toList(),
@@ -542,13 +542,13 @@ class DetailInspectorPanel extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(6),
       decoration: BoxDecoration(
-        color: const Color(0xFFF59E0B).withValues(alpha: 0.14),
+        color: AppTheme.warning.withValues(alpha: 0.14),
         borderRadius: BorderRadius.circular(5),
-        border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.55)),
+        border: Border.all(color: AppTheme.warning.withValues(alpha: 0.55)),
       ),
       child: Text(
         '⚠ $srcName ↔ $dstName: ${issues.join(' | ')}',
-        style: const TextStyle(fontSize: 10, color: Color(0xFFFBBF24)),
+        style: TextStyle(fontSize: 10, color: AppTheme.warning),
       ),
     );
   }
@@ -575,15 +575,15 @@ class DetailInspectorPanel extends StatelessWidget {
             style: TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.bold,
-              color: isLast ? Colors.white : Colors.white70,
+              color: isLast ? AppTheme.textPrimary : AppTheme.textSecondary,
             ),
           ),
           Text(
             node.ip,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 9.5,
               fontFamily: 'monospace',
-              color: Colors.white54,
+              color: AppTheme.textMuted,
             ),
           ),
         ],
@@ -600,16 +600,16 @@ class DetailInspectorPanel extends StatelessWidget {
             width: 100,
             child: Text(
               label,
-              style: const TextStyle(fontSize: 10.5, color: Colors.white38),
+              style: TextStyle(fontSize: 10.5, color: AppTheme.textMuted),
             ),
           ),
           Expanded(
             child: Text(
               value,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 10.5,
                 fontFamily: 'monospace',
-                color: Colors.white70,
+                color: AppTheme.textSecondary,
               ),
               overflow: TextOverflow.ellipsis,
             ),
@@ -629,7 +629,7 @@ class DetailInspectorPanel extends StatelessWidget {
           Flexible(
             child: Text(
               'Discovered: ${vm.nodes.length} nodes, ${vm.edges.length} edges across ${vm.traces.length} targets',
-              style: const TextStyle(fontSize: 11, color: Colors.white54),
+              style: TextStyle(fontSize: 11, color: AppTheme.textMuted),
               overflow: TextOverflow.ellipsis,
             ),
           ),
@@ -640,7 +640,7 @@ class DetailInspectorPanel extends StatelessWidget {
                 alignment: Alignment.centerRight,
                 child: Text(
                   'Selected: ${vm.selectedNode!.displayName} (${vm.selectedNode!.ip})',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 11,
                     fontFamily: 'monospace',
                     color: AppTheme.activeHighlight,
@@ -657,7 +657,7 @@ class DetailInspectorPanel extends StatelessWidget {
             vm.isSharedDbConnected ? 'Shared DB: Synced' : 'Shared DB: Offline',
             style: TextStyle(
               fontSize: 11,
-              color: vm.isSharedDbConnected ? const Color(0xFF10B981) : const Color(0xFFF59E0B),
+              color: vm.isSharedDbConnected ? AppTheme.success : AppTheme.warning,
             ),
           ),
           const SizedBox(width: 10),
@@ -668,12 +668,12 @@ class DetailInspectorPanel extends StatelessWidget {
               borderRadius: BorderRadius.circular(4),
               border: Border.all(color: AppTheme.border),
             ),
-            child: const Text(
+            child: Text(
               AppConstants.appVersion,
               style: TextStyle(
                 fontSize: 10,
                 fontFamily: 'monospace',
-                color: Colors.white54,
+                color: AppTheme.textMuted,
               ),
             ),
           ),
