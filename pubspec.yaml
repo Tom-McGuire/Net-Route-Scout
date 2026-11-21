@@ -2,7 +2,7 @@ name: net_route_scout
 description: "Net Route Scout - Visual Multi-Hop Network Topology & Traceroute Mapper"
 publish_to: 'none'
 
-version: 0.8.0+1
+version: 0.8.1+1
 
 environment:
   sdk: ^3.13.0
@@ -14,7 +14,7 @@ dependencies:
   network_suite_shared:
     git:
       url: https://github.com/Tom-McGuire/network-suite-shared.git
-      ref: 843f2d688e62f864dea6c1a9aab190a924354dfe
+      ref: main
 
   provider: ^6.1.5+1
   sqlite3_flutter_libs: ^0.6.0+eol

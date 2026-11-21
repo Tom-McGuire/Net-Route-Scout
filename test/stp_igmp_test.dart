@@ -1,11 +1,26 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:network_suite_shared/network_suite_shared.dart';
 import 'package:net_route_scout/data/repositories/topology_repository.dart';
 import 'package:net_route_scout/data/services/l2_role_sniffer_service.dart';
+import 'package:net_route_scout/data/services/shared_device_service.dart';
 import 'package:net_route_scout/data/services/snmp_switch_service.dart';
 import 'package:net_route_scout/domain/models/igmp_vlan_status.dart';
 import 'package:net_route_scout/domain/models/network_edge.dart';
+import 'package:net_route_scout/domain/models/network_node.dart';
 import 'package:net_route_scout/domain/models/stp_port_info.dart';
 import 'package:net_route_scout/domain/models/switch_discovery_info.dart';
+import 'package:net_route_scout/domain/models/trace_hop.dart';
+import 'package:net_route_scout/domain/models/trace_result.dart';
+
+class _FakeSharedDeviceService extends SharedDeviceService {
+  final Map<String, SharedDeviceResolvedInfo> _byMac;
+  _FakeSharedDeviceService(this._byMac);
+
+  @override
+  SharedDeviceResolvedInfo? resolveDeviceInfo(String rawMac) {
+    return _byMac[SharedDevice.normalizeMac(rawMac)];
+  }
+}
 
 void main() {
   group('STP & IGMP Parsing Tests', () {
@@ -233,6 +248,81 @@ void main() {
       expect(edge!.sourcePortName, 'Gi1/0/24');
       expect(edge.targetPortName, 'Te1/0/1');
       expect(repo.edges['${access.id}->${core.id}'], isNull);
+    });
+
+    test('Issue #8: enrichNodes consumes shared IGMP Querier metadata and lastQuerierSeen', () {
+      final seen = DateTime.utc(2026, 11, 21, 18, 30, 0);
+      final sharedDev = SharedDevice(
+        macAddress: '00:11:22:33:44:55',
+        name: 'Core AV Switch',
+        vendor: 'Luminex',
+        deviceType: 'switch',
+        sourceApp: 'igmp-tester',
+        createdAt: seen,
+        updatedAt: seen,
+        isIgmpQuerier: true,
+        lastQuerierSeen: seen,
+        igmpQuerierVersion: 'IGMPv3',
+      );
+      final fakeService = _FakeSharedDeviceService({
+        '00:11:22:33:44:55': SharedDeviceResolvedInfo(
+          device: sharedDev,
+          friendlyName: sharedDev.name,
+          categoryKey: 'switch',
+          categoryLabel: 'Switch',
+          categoryIcon: UnifiedDeviceCategory.resolve('switch').icon,
+        ),
+      });
+
+      final repo = TopologyRepository();
+      repo.setLocalHost('10.0.0.5', gatewayIp: '10.0.0.1');
+      repo.ingestTraceResult(
+        TraceResult(
+          targetIp: '10.0.0.2',
+          isReachable: true,
+          completedAt: seen,
+          hops: const [TraceHop(depth: 1, ip: '10.0.0.2', rttMs: 1.0)],
+        ),
+      );
+
+      repo.enrichNodes(
+        arpCache: {
+          '10.0.0.2': const ArpCacheEntry(
+            ipAddress: '10.0.0.2',
+            macAddress: '00:11:22:33:44:55',
+            arpType: 'dynamic',
+            interfaceName: 'eth0',
+            rawLine: '',
+          ),
+        },
+        sharedDeviceService: fakeService,
+      );
+
+      final enriched = repo.nodes['10.0.0.2']!;
+      expect(enriched.isSwitch, isTrue);
+      expect(enriched.isIgmpQuerier, isTrue);
+      expect(enriched.igmpQuerierVersion, 'IGMPv3');
+      expect(enriched.lastQuerierSeen, seen);
+
+      final roundTripped = NetworkNode.fromJson(enriched.toJson());
+      expect(roundTripped.lastQuerierSeen, seen);
+      expect(roundTripped.isIgmpQuerier, isTrue);
+    });
+
+    test('Issue #8: applyPassiveIgmpQuerier propagates observedAt into lastQuerierSeen', () {
+      final observed = DateTime.utc(2026, 11, 21, 19, 0, 0);
+      final repo = TopologyRepository();
+      repo.setLocalHost('10.0.2.100');
+      repo.addStandaloneSwitch(name: 'Switch A', ip: '10.0.2.10', upstreamNodeId: '10.0.2.100');
+
+      final matched = repo.applyPassiveIgmpQuerier(IgmpPassiveResult(
+        querierIp: '10.0.2.10',
+        igmpVersion: 'IGMPv2',
+        observedAt: observed,
+      ));
+      expect(matched, isTrue);
+      expect(repo.nodes['10.0.2.10']!.isIgmpQuerier, isTrue);
+      expect(repo.nodes['10.0.2.10']!.lastQuerierSeen, observed);
     });
   });
 }

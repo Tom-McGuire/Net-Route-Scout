@@ -361,8 +361,8 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: "843f2d688e62f864dea6c1a9aab190a924354dfe"
-      resolved-ref: "843f2d688e62f864dea6c1a9aab190a924354dfe"
+      ref: main
+      resolved-ref: "12512b782382be36a64f577a7e13ead48d4b0cff"
       url: "https://github.com/Tom-McGuire/network-suite-shared.git"
     source: git
     version: "1.0.0"

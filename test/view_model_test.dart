@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:network_suite_shared/network_suite_shared.dart';
 import 'package:net_route_scout/core/constants.dart';
 import 'package:net_route_scout/data/repositories/topology_repository.dart';
 import 'package:net_route_scout/data/services/arp_service.dart';
@@ -29,7 +30,7 @@ class FakeIcmpService extends IcmpService {
 
 class FakeArpService extends ArpService {
   @override
-  Future<Map<String, ArpDeviceEntry>> readSystemArpCache() async => {};
+  Future<Map<String, ArpCacheEntry>> readSystemArpCache() async => {};
 
   @override
   Future<String> detectLocalHostIp() async => '192.168.1.100';

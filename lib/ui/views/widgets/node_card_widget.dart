@@ -158,7 +158,9 @@ class NodeCardWidget extends StatelessWidget {
                             if (node.isIgmpQuerier) ...[
                               const SizedBox(width: 4),
                               Tooltip(
-                                message: 'Active IGMP Querier${node.igmpQuerierVersion != null ? ' (${node.igmpQuerierVersion})' : ''}',
+                                message: 'Active IGMP Querier'
+                                    '${node.igmpQuerierVersion != null ? ' (${node.igmpQuerierVersion})' : ''}'
+                                    '${node.lastQuerierSeen != null ? '\nLast seen: ${node.lastQuerierSeen!.toLocal().toString().split('.').first}' : ''}',
                                 child: Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1.5),
                                   decoration: BoxDecoration(

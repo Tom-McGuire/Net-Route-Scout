@@ -120,6 +120,36 @@ class SharedDeviceService {
     _changeNotifier.add(null);
   }
 
+  /// Flags [rawMac] as an active IGMP Querier in `shared_devices.db`.
+  void markIgmpQuerier(
+    String rawMac, {
+    DateTime? seenAt,
+    String? igmpVersion,
+    String? name,
+    String? vendor,
+    bool exclusive = false,
+  }) {
+    if (!SharedDeviceDatabase.instance.isInitialized) return;
+    final normalized = SharedDevice.normalizeMac(rawMac);
+    if (!SharedDevice.isValidMac(normalized)) return;
+    SharedDeviceDatabase.instance.markIgmpQuerier(
+      normalized,
+      seenAt: seenAt,
+      igmpVersion: igmpVersion,
+      name: name,
+      vendor: vendor,
+      sourceApp: AppConstants.sourceAppName,
+      exclusive: exclusive,
+    );
+    _changeNotifier.add(null);
+  }
+
+  /// Retrieves devices flagged as IGMP Queriers in `shared_devices.db`.
+  List<SharedDevice> getIgmpQueriers({Duration? activeWithin}) {
+    if (!SharedDeviceDatabase.instance.isInitialized) return const [];
+    return SharedDeviceDatabase.instance.getIgmpQueriers(activeWithin: activeWithin);
+  }
+
   /// Returns all available unified categories for selection dropdowns.
   List<UnifiedDeviceCategory> getCategories() {
     if (!SharedDeviceDatabase.instance.isInitialized) return const [];

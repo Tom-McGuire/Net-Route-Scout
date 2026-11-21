@@ -77,7 +77,7 @@ class TopologyViewModel extends ChangeNotifier {
   String _macFilter = '';
   String? _statusBannerText;
   bool _isSharedDbConnected = false;
-  Map<String, ArpDeviceEntry> _cachedArp = {};
+  Map<String, ArpCacheEntry> _cachedArp = {};
 
   // Device Filter & Library State
   bool _showAutoDetected = false;
@@ -987,6 +987,27 @@ class TopologyViewModel extends ChangeNotifier {
 
   void applyStpAndIgmpFromSnmp(String switchNodeId, SwitchDiscoveryResult result) {
     _repository.applyStpAndIgmpFromSnmp(switchNodeId, result);
+    final candidateIds = <String>{
+      switchNodeId,
+      for (final vlan in result.igmpVlans)
+        if (vlan.activeQuerierIp != null) vlan.activeQuerierIp!,
+    };
+    for (final id in candidateIds) {
+      final node = _repository.nodes[id];
+      if (node != null &&
+          node.isIgmpQuerier &&
+          node.macAddress != null &&
+          SharedDevice.isValidMac(node.macAddress!)) {
+        _sharedDeviceService.markIgmpQuerier(
+          node.macAddress!,
+          seenAt: node.lastQuerierSeen,
+          igmpVersion: node.igmpQuerierVersion,
+          name: node.displayName,
+          vendor: node.vendor,
+          exclusive: true,
+        );
+      }
+    }
     _dismissedAlertsSignature = null;
     _notify();
   }
@@ -1046,7 +1067,22 @@ class TopologyViewModel extends ChangeNotifier {
       ).listen(
         (igmpRes) {
           if (_disposed) return;
-          _repository.applyPassiveIgmpQuerier(igmpRes);
+          final matched = _repository.applyPassiveIgmpQuerier(igmpRes);
+          if (matched) {
+            final qNode = _repository.nodes[igmpRes.querierIp.trim()];
+            if (qNode != null &&
+                qNode.macAddress != null &&
+                SharedDevice.isValidMac(qNode.macAddress!)) {
+              _sharedDeviceService.markIgmpQuerier(
+                qNode.macAddress!,
+                seenAt: qNode.lastQuerierSeen ?? igmpRes.observedAt,
+                igmpVersion: qNode.igmpQuerierVersion ?? igmpRes.igmpVersion,
+                name: qNode.displayName,
+                vendor: qNode.vendor,
+                exclusive: true,
+              );
+            }
+          }
           if (!continuous) {
             _igmpPhaseTimer?.cancel();
             _l2ScanPhase = L2ScanPhase.idle;

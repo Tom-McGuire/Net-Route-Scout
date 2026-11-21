@@ -1,6 +1,7 @@
 import 'dart:collection';
 import 'dart:math' as math;
 import 'package:material_ui/material_ui.dart';
+import 'package:network_suite_shared/network_suite_shared.dart';
 import '../../domain/models/interface_health_stats.dart';
 import '../../domain/models/network_edge.dart';
 import '../../domain/models/network_node.dart';
@@ -9,7 +10,6 @@ import '../../domain/models/stp_port_info.dart';
 import '../../domain/models/switch_discovery_info.dart';
 import '../../domain/models/trace_hop.dart';
 import '../../domain/models/trace_result.dart';
-import '../services/arp_service.dart';
 import '../services/shared_device_service.dart';
 
 class TopologyRepository {
@@ -243,7 +243,7 @@ class TopologyRepository {
 
   /// Updates node details with ARP cache information and Shared Device Database data.
   void enrichNodes({
-    required Map<String, ArpDeviceEntry> arpCache,
+    required Map<String, ArpCacheEntry> arpCache,
     required SharedDeviceService sharedDeviceService,
   }) {
     for (final entry in _nodes.entries) {
@@ -277,6 +277,9 @@ class TopologyRepository {
             customCategoryColor: resolved.categoryColor,
             customCategoryIcon: resolved.categoryIcon,
             sharedNotes: resolved.device.notes,
+            isIgmpQuerier: node.isIgmpQuerier || resolved.device.isIgmpQuerier,
+            igmpQuerierVersion: node.igmpQuerierVersion ?? resolved.device.igmpQuerierVersion,
+            lastQuerierSeen: node.lastQuerierSeen ?? resolved.device.lastQuerierSeen,
           );
         }
       }
@@ -742,6 +745,7 @@ class TopologyRepository {
       igmpVlans: result.igmpVlans.isNotEmpty ? result.igmpVlans : node.igmpVlans,
       isIgmpQuerier: isLocalQuerier || node.isIgmpQuerier,
       igmpQuerierVersion: isLocalQuerier ? querierVer : node.igmpQuerierVersion,
+      lastQuerierSeen: isLocalQuerier ? DateTime.now() : node.lastQuerierSeen,
       vlanNames: result.vlanNames.isNotEmpty ? result.vlanNames : node.vlanNames,
       portVlans: result.portVlans.isNotEmpty ? result.portVlans : node.portVlans,
       interfaceHealth: mergedHealth,
@@ -756,6 +760,7 @@ class TopologyRepository {
         _nodes[qIp] = qNode.copyWith(
           isIgmpQuerier: true,
           igmpQuerierVersion: 'IGMPv${vlan.igmpVersion}',
+          lastQuerierSeen: DateTime.now(),
         );
       }
     }
@@ -798,6 +803,7 @@ class TopologyRepository {
         _nodes[entry.key] = node.copyWith(
           isIgmpQuerier: true,
           igmpQuerierVersion: result.igmpVersion,
+          lastQuerierSeen: result.observedAt,
         );
         matched = true;
       } else if (node.isIgmpQuerier) {

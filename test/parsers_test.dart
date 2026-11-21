@@ -163,6 +163,20 @@ void main() {
       // Broadcast MAC ff:ff:ff:ff:ff:ff should be ignored
       expect(table.containsKey('192.168.1.255'), isFalse);
     });
+
+    test('Parses macOS/BSD arp -an single-digit hex octets and /proc/net/arp via ArpCacheParser', () {
+      const bsdOutput = '? (192.168.1.42) at 0:1b:54:1:2:3 on en0 ifscope [ethernet]';
+      final bsdTable = ArpService.parseArpOutput(bsdOutput);
+      expect(bsdTable['192.168.1.42']?.macAddress, '00:1B:54:01:02:03');
+      expect(bsdTable['192.168.1.42']?.interfaceName, 'en0');
+
+      const procOutput =
+          'IP address       HW type     Flags       HW address            Mask     Device\n'
+          '10.0.0.25        0x1         0x2         aa:bb:cc:dd:ee:01     *        eth0';
+      final procTable = ArpService.parseArpOutput(procOutput);
+      expect(procTable['10.0.0.25']?.macAddress, 'AA:BB:CC:DD:EE:01');
+      expect(procTable['10.0.0.25']?.interfaceName, 'eth0');
+    });
   });
 
   group('TracerouteService Args Tests (P8)', () {

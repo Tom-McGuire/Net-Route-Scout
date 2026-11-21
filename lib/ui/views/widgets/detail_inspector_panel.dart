@@ -190,6 +190,11 @@ class DetailInspectorPanel extends StatelessWidget {
                         ? '📡 Active Querier (${node.igmpQuerierVersion ?? 'IGMPv2'})'
                         : 'Snooping Enabled (Querier elsewhere)',
                   ),
+                  if (node.isIgmpQuerier && node.lastQuerierSeen != null)
+                    _buildMetaRow(
+                      'Last Querier Seen',
+                      node.lastQuerierSeen!.toLocal().toString().split('.').first,
+                    ),
                 ],
                 if (node.stpPorts.isNotEmpty) ...[
                   const SizedBox(height: 6),

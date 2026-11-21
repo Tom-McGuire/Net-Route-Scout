@@ -46,6 +46,7 @@ class NetworkNode {
   final List<StpPortInfo> stpPorts;
   final bool isIgmpQuerier;
   final String? igmpQuerierVersion;
+  final DateTime? lastQuerierSeen;
   final bool igmpSnoopingEnabled;
   final List<IgmpVlanStatus> igmpVlans;
 
@@ -84,6 +85,7 @@ class NetworkNode {
     this.stpPorts = const [],
     this.isIgmpQuerier = false,
     this.igmpQuerierVersion,
+    this.lastQuerierSeen,
     this.igmpSnoopingEnabled = false,
     this.igmpVlans = const [],
     this.vlanNames = const {},
@@ -150,6 +152,7 @@ class NetworkNode {
     List<StpPortInfo>? stpPorts,
     bool? isIgmpQuerier,
     String? igmpQuerierVersion,
+    DateTime? lastQuerierSeen,
     bool? igmpSnoopingEnabled,
     List<IgmpVlanStatus>? igmpVlans,
     Map<int, String>? vlanNames,
@@ -186,6 +189,7 @@ class NetworkNode {
       stpPorts: stpPorts ?? this.stpPorts,
       isIgmpQuerier: isIgmpQuerier ?? this.isIgmpQuerier,
       igmpQuerierVersion: igmpQuerierVersion ?? this.igmpQuerierVersion,
+      lastQuerierSeen: lastQuerierSeen ?? this.lastQuerierSeen,
       igmpSnoopingEnabled: igmpSnoopingEnabled ?? this.igmpSnoopingEnabled,
       igmpVlans: igmpVlans ?? this.igmpVlans,
       vlanNames: vlanNames ?? this.vlanNames,
@@ -222,6 +226,7 @@ class NetworkNode {
     'stp_ports': stpPorts.map((p) => p.toJson()).toList(),
     'is_igmp_querier': isIgmpQuerier,
     'igmp_querier_version': igmpQuerierVersion,
+    'last_querier_seen': lastQuerierSeen?.toIso8601String(),
     'igmp_snooping_enabled': igmpSnoopingEnabled,
     'igmp_vlans': igmpVlans.map((v) => v.toJson()).toList(),
     'vlan_names': vlanNames.map((k, v) => MapEntry(k.toString(), v)),
@@ -278,6 +283,9 @@ class NetworkNode {
           : const [],
       isIgmpQuerier: json['is_igmp_querier'] as bool? ?? false,
       igmpQuerierVersion: json['igmp_querier_version'] as String?,
+      lastQuerierSeen: json['last_querier_seen'] is String
+          ? DateTime.tryParse(json['last_querier_seen'] as String)
+          : null,
       igmpSnoopingEnabled: json['igmp_snooping_enabled'] as bool? ?? false,
       igmpVlans: rawIgmpVlans is List
           ? rawIgmpVlans.whereType<Map<String, dynamic>>().map(IgmpVlanStatus.fromJson).toList()
